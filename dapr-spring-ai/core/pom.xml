@@ -1,0 +1,69 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.diagrid</groupId>
+    <artifactId>dapr-spring-ai-parent</artifactId>
+    <version>0.1.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>dapr-spring-ai-core</artifactId>
+  <name>dapr-spring-ai-core</name>
+  <description>Framework-agnostic durable agent workflow core (no Spring Boot dependency)</description>
+
+  <dependencies>
+    <!-- Dapr Workflows: WorkflowContext/DaprWorkflowClient/WorkflowRuntimeBuilder (+ durabletask, Jackson 2) -->
+    <dependency>
+      <groupId>io.dapr</groupId>
+      <artifactId>dapr-sdk-workflows</artifactId>
+    </dependency>
+
+    <!-- Spring AI model abstractions only: ChatModel, messages, ChatOptions, ToolDefinition. No ChatClient here. -->
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-model</artifactId>
+    </dependency>
+
+    <!-- Jackson 2 for canonical hashing + record round-trip tests, matching durabletask's converter -->
+    <dependency>
+      <groupId>com.fasterxml.jackson.core</groupId>
+      <artifactId>jackson-databind</artifactId>
+      <version>${jackson2.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Test/integration only: a concrete ChatModel for the live crash-recovery gate. -->
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-ollama</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <!-- Test/integration only: Dapr sidecar via Testcontainers. -->
+    <dependency>
+      <groupId>io.dapr</groupId>
+      <artifactId>testcontainers-dapr</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>org.testcontainers</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <version>1.20.4</version>
+      <scope>test</scope>
+    </dependency>
+    <!-- Real logging for the worker JVM and IT (otherwise SLF4J defaults to NOP). -->
+    <dependency>
+      <groupId>org.slf4j</groupId>
+      <artifactId>slf4j-simple</artifactId>
+      <version>2.0.16</version>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>
