@@ -95,8 +95,9 @@ public class DaprSpringAiAutoConfiguration {
 
   @Bean
   public DurableAdvisor daprDurableAdvisor(DurableRunner runner, DiscoveredTools tools) {
-    // Read specs per-call via the supplier: tools are populated after context startup.
-    return new DurableAdvisor(runner, tools::specs, new MessageCodec());
+    // The advisor reads global specs + request-scoped tools per call, and registers request tool
+    // callbacks into the shared registry, so it needs the live DiscoveredTools (not a specs snapshot).
+    return new DurableAdvisor(runner, tools, new MessageCodec());
   }
 
   @Bean

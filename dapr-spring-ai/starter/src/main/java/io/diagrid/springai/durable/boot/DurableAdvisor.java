@@ -5,9 +5,9 @@ import io.diagrid.springai.durable.conversation.MessageCodec;
 import io.diagrid.springai.durable.workflow.AgentRequest;
 import io.diagrid.springai.durable.workflow.ToolSpec;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
-import java.util.function.Supplier;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -17,45 +17,60 @@ import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.definition.ToolDefinition;
 import org.springframework.core.Ordered;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Makes a {@code ChatClient.call()} durable by running it as a Dapr Workflow instead of invoking the
  * model in-process.
  *
- * <p>Runs LAST in the advisor chain ({@link Ordered#LOWEST_PRECEDENCE}) so the request it captures
- * already includes anything earlier advisors injected (memory history, RAG context). It does NOT
- * call the rest of the chain: it derives the durable instance id from the request, schedules/attaches
- * the workflow (which runs the model-and-tools loop as activities), blocks on completion, and returns
- * the final assistant message. The user's ChatClient code is unchanged.
+ * <p><b>Order.</b> Runs at {@link Ordered#LOWEST_PRECEDENCE} - 1: late enough that the request it
+ * captures already has memory/RAG context and the tools that Spring AI's {@code ToolCallingAdvisor}
+ * (and request building) merged into the prompt options, but strictly before the terminal
+ * model-call advisor (which is at LOWEST_PRECEDENCE) so this advisor reliably runs and short-circuits
+ * it. It does NOT call the rest of the chain.
+ *
+ * <p><b>Tools.</b> The advertised tool surface is the union of (a) globally discovered {@code @Tool}
+ * beans and (b) the request-scoped tools attached to this specific ChatClient via
+ * {@code .defaultTools(...)} / {@code .tools(...)} — read from the prompt's
+ * {@link ToolCallingChatOptions#getToolCallbacks()}. Request tools win on name collisions, and are
+ * registered into the {@link io.diagrid.springai.durable.workflow.ToolRegistry} so the workflow's
+ * tool activity can execute them. This preserves per-agent scoping: an agent is only offered its own
+ * tools plus any global ones.
+ *
+ * <p><b>Durability caveat.</b> Request-scoped tools that are not Spring beans (e.g.
+ * {@code .defaultTools(new WeatherTools())}) are registered in memory at call time; they work on the
+ * live path but are NOT re-registered after a cold worker restart (unlike {@code @Tool} beans, which
+ * are rediscovered at startup). For full crash-recovery of tool steps, back tools with {@code @Tool}
+ * Spring beans.
  */
 public final class DurableAdvisor implements CallAdvisor {
 
+  private static final Logger LOG = LoggerFactory.getLogger(DurableAdvisor.class);
+
   private final DurableRunner runner;
-  private final Supplier<List<ToolSpec>> toolSpecs;
+  private final DiscoveredTools tools;
   private final MessageCodec codec;
 
-  /**
-   * @param toolSpecs supplies the advertised tool surface at call time (tools are discovered after
-   *                  context startup, so this must be read per call, not captured at construction)
-   */
-  public DurableAdvisor(DurableRunner runner, Supplier<List<ToolSpec>> toolSpecs, MessageCodec codec) {
+  public DurableAdvisor(DurableRunner runner, DiscoveredTools tools, MessageCodec codec) {
     this.runner = runner;
-    this.toolSpecs = toolSpecs;
+    this.tools = tools;
     this.codec = codec;
   }
 
   @Override
   public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
     String conversationId = conversationId(request);
+    List<ToolSpec> toolSpecs = resolveToolSpecs(request.prompt().getOptions());
     Map<String, Object> options = options(request.prompt().getOptions());
 
     AgentRequest agentRequest =
         new AgentRequest(
-            codec.toRecords(request.prompt().getInstructions()),
-            toolSpecs.get(),
-            options,
-            conversationId);
+            codec.toRecords(request.prompt().getInstructions()), toolSpecs, options, conversationId);
 
     String finalText;
     try {
@@ -67,6 +82,28 @@ public final class DurableAdvisor implements CallAdvisor {
     ChatResponse chatResponse =
         new ChatResponse(List.of(new Generation(new AssistantMessage(finalText))));
     return new ChatClientResponse(chatResponse, new HashMap<>(request.context()));
+  }
+
+  /**
+   * Union of globally discovered tools and this request's tools (request wins by name). Request tool
+   * callbacks are registered into the shared registry so the workflow's tool activity can run them.
+   */
+  private List<ToolSpec> resolveToolSpecs(ChatOptions chatOptions) {
+    LinkedHashMap<String, ToolSpec> byName = new LinkedHashMap<>();
+    for (ToolSpec spec : tools.specs()) {
+      byName.put(spec.name(), spec);
+    }
+    if (chatOptions instanceof ToolCallingChatOptions toolOptions) {
+      for (ToolCallback callback : toolOptions.getToolCallbacks()) {
+        ToolDefinition definition = callback.getToolDefinition();
+        tools.registry().register(definition.name(), callback::call);
+        byName.put(
+            definition.name(),
+            new ToolSpec(definition.name(), definition.description(), definition.inputSchema()));
+        LOG.debug("Advertising request-scoped tool '{}' to the durable workflow", definition.name());
+      }
+    }
+    return List.copyOf(byName.values());
   }
 
   private static String conversationId(ChatClientRequest request) {
@@ -94,6 +131,8 @@ public final class DurableAdvisor implements CallAdvisor {
 
   @Override
   public int getOrder() {
-    return Ordered.LOWEST_PRECEDENCE;
+    // Strictly before the terminal ChatModelCallAdvisor (LOWEST_PRECEDENCE); after the
+    // ToolCallingAdvisor + request building that merge tools into the prompt options.
+    return Ordered.LOWEST_PRECEDENCE - 1;
   }
 }

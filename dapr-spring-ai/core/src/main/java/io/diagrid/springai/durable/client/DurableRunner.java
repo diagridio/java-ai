@@ -27,7 +27,7 @@ import org.slf4j.LoggerFactory;
  * now exists (the wait succeeds) or it does not (the wait times out). The exact backend behavior on
  * a duplicate create is verified empirically by the crash-recovery integration test.
  */
-public final class DurableRunner {
+public class DurableRunner {
 
   private static final Logger LOG = LoggerFactory.getLogger(DurableRunner.class);
 
