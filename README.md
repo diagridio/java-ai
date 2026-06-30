@@ -76,11 +76,11 @@ re-registration).
 
 ## Roadmap
 
-- [ ] `dapr-spring-ai` — durable `ChatClient` over Dapr Workflows
+- [x] `dapr-spring-ai` — durable `ChatClient` over Dapr Workflows
 - [ ] Dapr [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/) integration — Spring AI `ChatModel` backed by Dapr's Conversation building block
 - [ ] Chat memory backed by a Dapr state store — durable conversation history via Spring AI's `ChatMemory`
 - [ ] Agent registry backed by a Dapr state store
-- [ ] Spring Boot auto-configuration / starter
+- [x] Spring Boot auto-configuration / starter
 
 ## Requirements
 
