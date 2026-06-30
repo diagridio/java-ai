@@ -1,0 +1,42 @@
+<?xml version="1.0"?>
+<ruleset name="dapr-java-agents-kit"
+         xmlns="http://pmd.sourceforge.net/ruleset/2.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://pmd.sourceforge.net/ruleset/2.0.0
+                             https://pmd.sourceforge.io/ruleset_2_0_0.xsd">
+
+    <description>PMD rules for dapr-java-agents-kit</description>
+
+    <!-- Best practices -->
+    <rule ref="category/java/bestpractices.xml/UnusedLocalVariable"/>
+    <rule ref="category/java/bestpractices.xml/UnusedPrivateField"/>
+    <rule ref="category/java/bestpractices.xml/UnusedPrivateMethod"/>
+    <rule ref="category/java/bestpractices.xml/AvoidReassigningParameters"/>
+
+    <!-- Code style -->
+    <rule ref="category/java/codestyle.xml/UnnecessaryImport"/>
+    <rule ref="category/java/codestyle.xml/ExtendsObject"/>
+    <rule ref="category/java/codestyle.xml/ForLoopShouldBeWhileLoop"/>
+    <rule ref="category/java/codestyle.xml/UnnecessaryReturn"/>
+
+    <!-- Design -->
+    <rule ref="category/java/design.xml/SimplifyBooleanReturns"/>
+    <rule ref="category/java/design.xml/UselessOverridingMethod"/>
+    <rule ref="category/java/design.xml/FinalFieldCouldBeStatic"/>
+
+    <!-- Error prone -->
+    <rule ref="category/java/errorprone.xml/EmptyCatchBlock">
+        <properties>
+            <property name="allowCommentedBlocks" value="true"/>
+        </properties>
+    </rule>
+    <!-- AvoidDuplicateLiterals: disabled — too noisy for JSON schema builders -->
+    <!-- Consider re-enabling with higher threshold when codebase matures -->
+    <rule ref="category/java/errorprone.xml/CloseResource"/>
+    <!-- MissingSerialVersionUID: disabled — our exceptions are not serialized -->
+    <rule ref="category/java/errorprone.xml/ReturnEmptyCollectionRatherThanNull"/>
+
+    <!-- Performance -->
+    <rule ref="category/java/performance.xml/StringInstantiation"/>
+    <rule ref="category/java/performance.xml/UseStringBufferForStringAppends"/>
+</ruleset>

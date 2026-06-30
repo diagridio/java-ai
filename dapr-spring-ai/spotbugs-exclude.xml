@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<FindBugsFilter>
+    <!--
+        Exclude EI_EXPOSE_REP and EI_EXPOSE_REP2 globally.
+        Java records intentionally expose their components via
+        accessor methods. Defensive copies are done in compact
+        constructors where needed (e.g., List.copyOf, Map.copyOf).
+    -->
+    <Match>
+        <Bug pattern="EI_EXPOSE_REP,EI_EXPOSE_REP2"/>
+    </Match>
+
+    <!--
+        VA_FORMAT_STRING_USES_NEWLINE in examples: JSON templates
+        intentionally use \n for JSON formatting, not platform newlines.
+    -->
+    <Match>
+        <Bug pattern="VA_FORMAT_STRING_USES_NEWLINE"/>
+        <Class name="~io\.dapr\.agents\.examples\..*"/>
+    </Match>
+</FindBugsFilter>
