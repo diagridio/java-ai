@@ -195,7 +195,7 @@ class CrashRecoveryIT {
                 "getSecretWord",
                 "Returns the secret word. Takes no arguments.",
                 "{\"type\":\"object\",\"properties\":{}}")),
-        Map.of("model", MODEL, "temperature", 0.0));
+        new ChatOptionsSpec(MODEL, 0.0, null, null, null, null, null, null));
   }
 
   private Process startWorker(Path dir, String label) throws IOException {

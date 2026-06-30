@@ -44,7 +44,7 @@ public final class LlmInvokeActivity implements WorkflowActivity {
     List<ToolCallback> toolCallbacks =
         input.toolSpecs().stream().map(spec -> (ToolCallback) new DefinitionOnlyToolCallback(spec)).toList();
 
-    ChatOptions options = optionsFactory.create(input.model(), input.temperature(), toolCallbacks);
+    ChatOptions options = optionsFactory.create(input.options(), toolCallbacks);
     Prompt prompt = new Prompt(messages, options);
 
     ChatResponse response = chatModel.call(prompt);

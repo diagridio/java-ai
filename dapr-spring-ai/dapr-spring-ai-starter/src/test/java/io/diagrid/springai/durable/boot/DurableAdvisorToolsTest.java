@@ -8,6 +8,7 @@ import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
 import io.diagrid.springai.durable.instance.InstanceIdDerivation;
 import io.diagrid.springai.durable.workflow.AgentRequest;
+import io.diagrid.springai.durable.workflow.ChatOptionsSpec;
 import io.diagrid.springai.durable.workflow.ToolSpec;
 import java.time.Duration;
 import java.util.HashMap;
@@ -111,6 +112,42 @@ class DurableAdvisorToolsTest {
     List<String> advertised = runner.captured.toolSpecs().stream().map(ToolSpec::name).toList();
     assertTrue(advertised.contains("convert"));
     assertFalse(advertised.contains("getWeather"), "an agent that did not register WeatherTools must not be offered it");
+  }
+
+  /**
+   * Fidelity: the whole portable ChatOptions surface (not just model + temperature) is captured and
+   * carried to the workflow, so options like maxTokens/topP/stopSequences are not silently dropped.
+   */
+  @Test
+  void fullPortableChatOptionsAreCarriedToTheWorkflow() {
+    DiscoveredTools tools = new DiscoveredTools();
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, tools, new MessageCodec());
+
+    ToolCallingChatOptions options =
+        ToolCallingChatOptions.builder()
+            .model("gpt-4o")
+            .temperature(0.3)
+            .maxTokens(512)
+            .topP(0.9)
+            .topK(40)
+            .frequencyPenalty(0.5)
+            .presencePenalty(0.25)
+            .stopSequences(List.of("STOP"))
+            .build();
+    Prompt prompt = new Prompt(List.of(new UserMessage("plan a trip")), options);
+
+    advisor.adviseCall(new ChatClientRequest(prompt, new HashMap<>()), null);
+
+    ChatOptionsSpec spec = runner.captured.options();
+    assertEquals("gpt-4o", spec.model());
+    assertEquals(Double.valueOf(0.3), spec.temperature());
+    assertEquals(Integer.valueOf(512), spec.maxTokens());
+    assertEquals(Double.valueOf(0.9), spec.topP());
+    assertEquals(Integer.valueOf(40), spec.topK());
+    assertEquals(Double.valueOf(0.5), spec.frequencyPenalty());
+    assertEquals(Double.valueOf(0.25), spec.presencePenalty());
+    assertEquals(List.of("STOP"), spec.stopSequences());
   }
 
   /** Regression: a tool-less agent's options return null (not []) from getToolCallbacks(). */

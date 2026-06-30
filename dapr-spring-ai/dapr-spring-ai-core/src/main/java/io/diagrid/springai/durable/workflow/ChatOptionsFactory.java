@@ -16,10 +16,10 @@ import org.springframework.ai.tool.ToolCallback;
 public interface ChatOptionsFactory {
 
   /**
-   * @param model         model identifier (provider-specific)
-   * @param temperature   sampling temperature, or {@code null} for the provider default
+   * @param spec          portable chat options captured from the original call (model, temperature,
+   *                      max tokens, top-p, etc.); non-null fields override the provider defaults
    * @param toolCallbacks tool callbacks to advertise to the model (definition-only; never executed)
    * @return provider-appropriate chat options
    */
-  ChatOptions create(String model, Double temperature, List<ToolCallback> toolCallbacks);
+  ChatOptions create(ChatOptionsSpec spec, List<ToolCallback> toolCallbacks);
 }

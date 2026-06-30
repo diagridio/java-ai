@@ -2,7 +2,6 @@ package io.diagrid.springai.durable.workflow;
 
 import io.diagrid.springai.durable.conversation.MessageRecord;
 import java.util.List;
-import java.util.Map;
 
 /**
  * Input to the agent workflow: one {@code ChatClient} call rendered as serializable data.
@@ -16,18 +15,18 @@ import java.util.Map;
  *
  * @param messages       seed messages (system/user) for the conversation
  * @param toolSpecs      tools available to the model
- * @param options        chat options (model/component name, temperature, etc.), as a canonical map
+ * @param options        portable chat options (model, temperature, max tokens, etc.) for the call
  * @param conversationId conversation id (e.g. Spring AI's {@code ChatMemory.CONVERSATION_ID}), or
  *                       {@code null} for a stateless call with no conversation
  */
 public record AgentRequest(
     List<MessageRecord> messages,
     List<ToolSpec> toolSpecs,
-    Map<String, Object> options,
+    ChatOptionsSpec options,
     String conversationId) {
 
   /** Convenience for a stateless call with no conversation id (content-hash durability key). */
-  public AgentRequest(List<MessageRecord> messages, List<ToolSpec> toolSpecs, Map<String, Object> options) {
+  public AgentRequest(List<MessageRecord> messages, List<ToolSpec> toolSpecs, ChatOptionsSpec options) {
     this(messages, toolSpecs, options, null);
   }
 }

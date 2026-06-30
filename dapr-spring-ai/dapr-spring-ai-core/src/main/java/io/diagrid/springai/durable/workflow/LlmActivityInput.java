@@ -10,9 +10,8 @@ import java.util.List;
  *
  * @param conversation ordered conversation records (seed + all prior turns)
  * @param toolSpecs    tools to advertise to the model
- * @param model        model identifier
- * @param temperature  sampling temperature, or {@code null} for the provider default
+ * @param options      portable chat options to apply on top of the provider defaults
  */
 public record LlmActivityInput(
-    List<MessageRecord> conversation, List<ToolSpec> toolSpecs, String model, Double temperature) {
+    List<MessageRecord> conversation, List<ToolSpec> toolSpecs, ChatOptionsSpec options) {
 }

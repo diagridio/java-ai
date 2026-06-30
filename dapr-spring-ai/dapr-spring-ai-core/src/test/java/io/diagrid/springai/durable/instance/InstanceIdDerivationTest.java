@@ -7,10 +7,9 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.diagrid.springai.durable.conversation.MessageRecord;
 import io.diagrid.springai.durable.workflow.AgentRequest;
+import io.diagrid.springai.durable.workflow.ChatOptionsSpec;
 import io.diagrid.springai.durable.workflow.ToolSpec;
-import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.junit.jupiter.api.Test;
 
 /**
@@ -28,18 +27,22 @@ class InstanceIdDerivationTest {
         MessageRecord.user("book me a flight to Madrid"));
   }
 
+  private ChatOptionsSpec options(String model, Double temperature) {
+    return new ChatOptionsSpec(model, temperature, null, null, null, null, null, null);
+  }
+
   private AgentRequest statelessRequest() {
     return new AgentRequest(
         seedMessages(),
         List.of(new ToolSpec("bookFlight", "Book a flight", "{\"type\":\"object\"}")),
-        Map.of("model", "openai", "temperature", 0.7));
+        options("openai", 0.7));
   }
 
   private AgentRequest conversationRequest(String conversationId, List<MessageRecord> messages) {
     return new AgentRequest(
         messages,
         List.of(new ToolSpec("bookFlight", "Book a flight", "{\"type\":\"object\"}")),
-        Map.of("model", "openai", "temperature", 0.7),
+        options("openai", 0.7),
         conversationId);
   }
 
@@ -118,20 +121,6 @@ class InstanceIdDerivationTest {
   }
 
   @Test
-  void fallbackOptionsMapInsertionOrderDoesNotAffectId() {
-    Map<String, Object> ordered = new LinkedHashMap<>();
-    ordered.put("model", "openai");
-    ordered.put("temperature", 0.7);
-    Map<String, Object> reversed = new LinkedHashMap<>();
-    reversed.put("temperature", 0.7);
-    reversed.put("model", "openai");
-
-    AgentRequest a = new AgentRequest(seedMessages(), statelessRequest().toolSpecs(), ordered);
-    AgentRequest b = new AgentRequest(seedMessages(), statelessRequest().toolSpecs(), reversed);
-    assertEquals(derivation.deriveInstanceId(a), derivation.deriveInstanceId(b));
-  }
-
-  @Test
   void fallbackDistinguishesMessagesToolsAndOptions() {
     AgentRequest base = statelessRequest();
     AgentRequest otherMessages =
@@ -147,7 +136,7 @@ class InstanceIdDerivationTest {
             List.of(new ToolSpec("cancelFlight", "Cancel a flight", "{\"type\":\"object\"}")),
             base.options());
     AgentRequest otherOptions =
-        new AgentRequest(base.messages(), base.toolSpecs(), Map.of("model", "openai", "temperature", 0.2));
+        new AgentRequest(base.messages(), base.toolSpecs(), options("openai", 0.2));
 
     String baseId = derivation.deriveInstanceId(base);
     assertNotEquals(baseId, derivation.deriveInstanceId(otherMessages));
@@ -159,7 +148,7 @@ class InstanceIdDerivationTest {
   void fallbackGoldenValueGuardsByteStability() {
     // Pins the exact digest so an accidental change to the canonical serialization is caught.
     // Regenerate intentionally if AgentRequest/MessageRecord field shape changes.
-    String expected = "dsa-h-c113cdde728719b83894d848365456c3e7fa5cae34c444e1b1e7336ad088c080";
+    String expected = "dsa-h-507b29338fc3d279ec97a50494f9f2c25f1a5014300d349c40510ce73694016c";
     assertEquals(expected, derivation.deriveInstanceId(statelessRequest()));
   }
 }

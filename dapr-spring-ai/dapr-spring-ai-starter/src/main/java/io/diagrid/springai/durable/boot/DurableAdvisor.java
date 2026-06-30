@@ -3,11 +3,11 @@ package io.diagrid.springai.durable.boot;
 import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
 import io.diagrid.springai.durable.workflow.AgentRequest;
+import io.diagrid.springai.durable.workflow.ChatOptionsSpec;
 import io.diagrid.springai.durable.workflow.ToolSpec;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
-import java.util.Map;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
@@ -66,7 +66,7 @@ public final class DurableAdvisor implements CallAdvisor {
   public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
     String conversationId = conversationId(request);
     List<ToolSpec> toolSpecs = resolveToolSpecs(request.prompt().getOptions());
-    Map<String, Object> options = options(request.prompt().getOptions());
+    ChatOptionsSpec options = ChatOptionsSpec.from(request.prompt().getOptions());
 
     AgentRequest agentRequest =
         new AgentRequest(
@@ -114,19 +114,6 @@ public final class DurableAdvisor implements CallAdvisor {
   private static String conversationId(ChatClientRequest request) {
     Object value = request.context().get(ChatMemory.CONVERSATION_ID);
     return value == null ? null : value.toString();
-  }
-
-  private static Map<String, Object> options(ChatOptions chatOptions) {
-    Map<String, Object> options = new HashMap<>();
-    if (chatOptions != null) {
-      if (chatOptions.getModel() != null) {
-        options.put("model", chatOptions.getModel());
-      }
-      if (chatOptions.getTemperature() != null) {
-        options.put("temperature", chatOptions.getTemperature());
-      }
-    }
-    return options;
   }
 
   @Override

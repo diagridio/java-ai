@@ -6,7 +6,6 @@ import io.dapr.workflows.Workflow;
 import io.dapr.workflows.WorkflowStub;
 import java.util.ArrayList;
 import java.util.List;
-import java.util.Map;
 
 /**
  * The single, generic agent workflow: runs the chat-and-tools loop for one {@code ChatClient} call
@@ -42,12 +41,11 @@ public final class AgentWorkflow implements Workflow {
 
       // Seed with the input messages; each turn appends its records (decode-from-history).
       List<MessageRecord> conversation = new ArrayList<>(request.messages());
-      String model = stringOption(request.options(), "model");
-      Double temperature = doubleOption(request.options(), "temperature");
+      ChatOptionsSpec options = request.options();
 
       while (true) {
         LlmActivityInput llmInput =
-            new LlmActivityInput(List.copyOf(conversation), request.toolSpecs(), model, temperature);
+            new LlmActivityInput(List.copyOf(conversation), request.toolSpecs(), options);
         LlmResult llm = ctx.callActivity(LLM_ACTIVITY, llmInput, LlmResult.class).await();
         conversation.add(llm.toMessageRecord());
 
@@ -66,18 +64,5 @@ public final class AgentWorkflow implements Workflow {
         conversation.add(ToolResult.toMessageRecord(batch));
       }
     };
-  }
-
-  private static String stringOption(Map<String, Object> options, String key) {
-    Object value = options == null ? null : options.get(key);
-    return value == null ? null : value.toString();
-  }
-
-  private static Double doubleOption(Map<String, Object> options, String key) {
-    Object value = options == null ? null : options.get(key);
-    if (value == null) {
-      return null;
-    }
-    return value instanceof Number number ? number.doubleValue() : Double.parseDouble(value.toString());
   }
 }
