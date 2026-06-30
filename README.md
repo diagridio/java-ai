@@ -35,6 +35,20 @@ For production, set a conversation id on your calls, and optionally set
 `dapr.spring-ai.require-conversation-id=true` so a call without one fails fast
 instead of silently using the hash.
 
+## Workflow type: one for all agents
+
+Every `ChatClient` call runs as the **same** workflow type
+(`io.diagrid.springai.durable.workflow.AgentWorkflow`), registered once at
+startup. This differs from Dapr Agents, which registers a per-agent workflow
+(`dapr.<framework>.<agent>.workflow`) because it has explicit, named agent
+objects. Here durability is transparent `ChatClient` interception with no
+agent-identity concept, so a single generic workflow serves all of them, and
+**agents/conversations are distinguished by the instance id** (the
+conversation-keyed id above), not by the workflow name. Per-agent workflow
+names would require an opt-in agent name registered at startup (durabletask
+needs a workflow name registered before it can be scheduled) and would erode
+the zero-code drop-in — a deliberate trade-off, not an oversight.
+
 ## Tools and crash recovery
 
 Tools are dispatched as workflow activities, so a completed tool call is never

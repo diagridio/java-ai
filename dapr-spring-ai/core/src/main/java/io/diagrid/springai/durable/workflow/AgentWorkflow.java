@@ -17,6 +17,15 @@ import java.util.Map;
  * each {@code callActivity(...).await()} returns the persisted result rather than re-executing, so
  * the accumulated {@code conversation} list is rebuilt identically. All data formatting and the
  * model/tool I/O happen inside activities.
+ *
+ * <p><b>One workflow type for every agent (by design).</b> Unlike Dapr Agents, which registers a
+ * per-agent workflow ({@code dapr.<framework>.<agent>.workflow}), this layer registers a single
+ * generic workflow ({@link #NAME}) for all {@code ChatClient} calls. Durability here is transparent
+ * ChatClient interception with no agent-identity concept: the advisor wraps any ChatClient and runs
+ * this same loop. Per-agent workflow names would require an opt-in agent name registered at startup
+ * (durabletask needs the name registered before scheduling), which would also dent the zero-code
+ * drop-in. Agents/conversations are instead distinguished by the <em>instance id</em>
+ * (conversation-id keyed), not the workflow type — see {@code InstanceIdDerivation}.
  */
 public final class AgentWorkflow implements Workflow {
 
