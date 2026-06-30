@@ -74,6 +74,16 @@ workflow state, not the tool's implementation. There is no retry/backoff on the
 tool activity today (a failed tool fails the workflow rather than waiting for
 re-registration).
 
+## Model options
+
+Across the durable boundary, chat options are reconstructed from the model's
+default options plus the **portable** `ChatOptions` fields captured from the
+call: `model`, `temperature`, `maxTokens`, `topP`, `topK`, `stopSequences`,
+`frequencyPenalty`, `presencePenalty`. Provider-specific options (e.g. Ollama's
+`numCtx`) are only preserved when set as **model defaults** (e.g. in
+`application.yml`), not when passed per call — so set provider-specific tuning as
+a default rather than on an individual request.
+
 ## Roadmap
 
 - [x] `dapr-spring-ai` — durable `ChatClient` over Dapr Workflows
