@@ -15,6 +15,26 @@ progress is checkpointed by the Dapr runtime. If the process crashes
 mid-conversation, the workflow resumes from the last completed step instead
 of replaying the whole interaction or losing it.
 
+## Durability key (demo vs production)
+
+Each call is run as a workflow identified by a deterministic **instance id** —
+that id is what lets a reissued call reattach to an in-flight or completed
+workflow instead of starting (and double-executing) a new one. It is resolved
+two ways:
+
+- **With a conversation id** (`ChatMemory.CONVERSATION_ID` set on the call) →
+  the id is `conversationId + turn`. Stable and robust to non-deterministic
+  prompt content. **This is the production path.**
+- **Without one** → a content hash of the request. Zero-config, so the
+  examples and demos "just work" — but it is brittle (any non-deterministic
+  prompt content, e.g. reordered RAG chunks or a timestamp, changes the hash
+  and defeats dedup). **Not recommended for production.** The library logs a
+  one-time `WARN` the first time it falls back to the hash.
+
+For production, set a conversation id on your calls, and optionally set
+`dapr.spring-ai.require-conversation-id=true` so a call without one fails fast
+instead of silently using the hash.
+
 ## Tools and crash recovery
 
 Tools are dispatched as workflow activities, so a completed tool call is never

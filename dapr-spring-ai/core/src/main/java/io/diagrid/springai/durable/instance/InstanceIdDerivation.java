@@ -5,9 +5,14 @@ import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.SerializationFeature;
+import io.diagrid.springai.durable.conversation.MessageRecord;
+import io.diagrid.springai.durable.conversation.Role;
 import io.diagrid.springai.durable.workflow.AgentRequest;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
+import java.util.concurrent.atomic.AtomicBoolean;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Derives the deterministic workflow instance id from a request — the entire durability mechanism.
@@ -16,11 +21,12 @@ import java.security.NoSuchAlgorithmException;
  *
  * <p>Resolution order:
  * <ol>
- *   <li><b>Conversation id present</b> → {@code dsa-c-<conversationId>-t<turnIndex>}, where
- *       {@code turnIndex} is the message count of the call. This needs no hashing and is robust to
+ *   <li><b>Conversation id present</b> → {@code dsa-c-<conversationId>} for the first turn, and
+ *       {@code dsa-c-<conversationId>:<turn>} for later turns, where {@code turn} is the 0-based
+ *       count of prior assistant replies in the request. This needs no hashing and is robust to
  *       non-deterministic prompt content (RAG ordering, timestamps): a retry of the same turn
- *       resends the same messages → same count → same id; the next turn carries more messages → a
- *       new id. The conversation id is the natural, stable durability key (e.g. Spring AI's
+ *       resends the same messages → same turn → same id; the next turn carries one more prior reply
+ *       → a new id. The conversation id is the natural, stable durability key (e.g. Spring AI's
  *       {@code ChatMemory.CONVERSATION_ID}).</li>
  *   <li><b>No conversation id, strict mode</b> → fail fast, demanding a conversation id.</li>
  *   <li><b>No conversation id, lenient (default)</b> → {@code dsa-h-<sha256>} over a canonical
@@ -32,8 +38,13 @@ import java.security.NoSuchAlgorithmException;
  */
 public final class InstanceIdDerivation {
 
+  private static final Logger LOG = LoggerFactory.getLogger(InstanceIdDerivation.class);
+
   static final String CONVERSATION_PREFIX = "dsa-c-";
   static final String HASH_PREFIX = "dsa-h-";
+
+  /** Warn at most once per JVM that durability is running on the content-hash fallback. */
+  private static final AtomicBoolean HASH_FALLBACK_WARNED = new AtomicBoolean(false);
 
   private final boolean requireConversationId;
   private final ObjectWriter canonicalWriter;
@@ -66,15 +77,42 @@ public final class InstanceIdDerivation {
   public String deriveInstanceId(AgentRequest request) {
     String conversationId = request.conversationId();
     if (conversationId != null && !conversationId.isBlank()) {
-      int turnIndex = request.messages() == null ? 0 : request.messages().size();
-      return CONVERSATION_PREFIX + sanitize(conversationId) + "-t" + turnIndex;
+      String base = CONVERSATION_PREFIX + sanitize(conversationId);
+      int turn = conversationTurn(request);
+      // First turn (0) is just the conversation id; later turns get ":<turn>".
+      return turn == 0 ? base : base + ":" + turn;
     }
     if (requireConversationId) {
       throw new IllegalStateException(
           "No conversation id present and strict mode is enabled. Set a conversation id "
               + "(e.g. ChatMemory.CONVERSATION_ID) or disable strict mode.");
     }
+    if (HASH_FALLBACK_WARNED.compareAndSet(false, true)) {
+      LOG.warn(
+          "No conversationId on this ChatClient call; using a content-hash durability key. This is "
+              + "fine for demos but NOT recommended for production (it is brittle to "
+              + "non-deterministic prompt content). Set ChatMemory.CONVERSATION_ID, or set "
+              + "dapr.spring-ai.require-conversation-id=true to enforce it. (Warning shown once.)");
+    }
     return HASH_PREFIX + toHex(sha256(canonicalBytes(request)));
+  }
+
+  /**
+   * 0-based conversation turn = completed prior rounds, derived as the number of assistant messages
+   * already in the request. First call → 0 (no suffix); each subsequent turn carries one more prior
+   * assistant reply → 1, 2, … A retry of the same turn resends the same messages → same count → same id.
+   */
+  private static int conversationTurn(AgentRequest request) {
+    if (request.messages() == null) {
+      return 0;
+    }
+    int turn = 0;
+    for (MessageRecord message : request.messages()) {
+      if (message.role() == Role.ASSISTANT) {
+        turn++;
+      }
+    }
+    return turn;
   }
 
   /** Keeps the id to id-like characters; other characters collapse to '_'. */

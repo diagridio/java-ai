@@ -46,10 +46,10 @@ class InstanceIdDerivationTest {
   // ---- Conversation-id path (primary) ----
 
   @Test
-  void conversationIdAndTurnIndexFormId() {
+  void firstTurnHasNoTurnSuffix() {
+    // seedMessages() has no assistant reply yet → turn 0 → bare conversation id.
     String id = derivation.deriveInstanceId(conversationRequest("conv-42", seedMessages()));
-    // turnIndex = message count = 2
-    assertEquals("dsa-c-conv-42-t2", id);
+    assertEquals("dsa-c-conv-42", id);
   }
 
   @Test
@@ -60,17 +60,16 @@ class InstanceIdDerivationTest {
   }
 
   @Test
-  void laterTurnInSameConversationYieldsDifferentId() {
-    List<MessageRecord> turn1 = seedMessages();
+  void laterTurnAppendsColonTurn() {
+    List<MessageRecord> turn1 = seedMessages(); // 0 assistant replies → turn 0
     List<MessageRecord> turn2 =
         List.of(
             MessageRecord.system("You are a travel agent."),
             MessageRecord.user("book me a flight to Madrid"),
-            MessageRecord.assistant("Booked.", List.of()),
+            MessageRecord.assistant("Booked.", List.of()), // 1 prior assistant reply → turn 1
             MessageRecord.user("now a hotel"));
-    assertNotEquals(
-        derivation.deriveInstanceId(conversationRequest("conv-42", turn1)),
-        derivation.deriveInstanceId(conversationRequest("conv-42", turn2)));
+    assertEquals("dsa-c-conv-42", derivation.deriveInstanceId(conversationRequest("conv-42", turn1)));
+    assertEquals("dsa-c-conv-42:1", derivation.deriveInstanceId(conversationRequest("conv-42", turn2)));
   }
 
   @Test
@@ -83,7 +82,7 @@ class InstanceIdDerivationTest {
   @Test
   void conversationIdIsSanitizedForUnsafeCharacters() {
     String id = derivation.deriveInstanceId(conversationRequest("user/42 session", seedMessages()));
-    assertEquals("dsa-c-user_42_session-t2", id);
+    assertEquals("dsa-c-user_42_session", id);
   }
 
   // ---- Strict mode ----
@@ -97,7 +96,7 @@ class InstanceIdDerivationTest {
   @Test
   void strictModeStillWorksWithConversationId() {
     InstanceIdDerivation strict = new InstanceIdDerivation(true);
-    assertEquals("dsa-c-conv-42-t2", strict.deriveInstanceId(conversationRequest("conv-42", seedMessages())));
+    assertEquals("dsa-c-conv-42", strict.deriveInstanceId(conversationRequest("conv-42", seedMessages())));
   }
 
   // ---- Content-hash fallback (stateless, lenient) ----
