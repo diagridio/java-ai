@@ -3,7 +3,9 @@ package io.diagrid.springai.durable.workflow;
 import io.diagrid.springai.durable.conversation.MessageRecord;
 import io.diagrid.springai.durable.conversation.ToolCallRecord;
 import io.dapr.workflows.Workflow;
+import io.dapr.workflows.WorkflowContext;
 import io.dapr.workflows.WorkflowStub;
+import io.dapr.workflows.WorkflowTaskOptions;
 import java.util.ArrayList;
 import java.util.List;
 
@@ -25,6 +27,12 @@ import java.util.List;
  * (durabletask needs the name registered before scheduling), which would also dent the zero-code
  * drop-in. Agents/conversations are instead distinguished by the <em>instance id</em>
  * (conversation-id keyed), not the workflow type — see {@code InstanceIdDerivation}.
+ *
+ * <p><b>Activity retries.</b> When constructed with a {@link WorkflowTaskOptions} carrying a retry
+ * policy, every LLM and tool activity is scheduled with it, so a transient failure (provider rate
+ * limit, network blip) is retried by the runtime instead of failing the whole workflow. The options
+ * are fixed at construction and therefore constant across replays. The no-arg constructor disables
+ * retries (one attempt). See {@code DaprSpringAiProperties.Retry}.
  */
 public final class AgentWorkflow implements Workflow {
 
@@ -33,6 +41,23 @@ public final class AgentWorkflow implements Workflow {
   public static final String NAME = AgentWorkflow.class.getName();
   public static final String LLM_ACTIVITY = "dsa.llm.invoke";
   public static final String TOOL_ACTIVITY = "dsa.tool.invoke";
+
+  // Retry/backoff applied to every activity call, or null for no retry (single attempt). Final, so
+  // it is constant across replays — it never changes the orchestration's deterministic shape.
+  private final WorkflowTaskOptions activityOptions;
+
+  /** Creates a workflow whose activities are not retried (a single attempt each). */
+  public AgentWorkflow() {
+    this(null);
+  }
+
+  /**
+   * @param activityOptions options (typically a retry policy) applied to every activity call, or
+   *                        {@code null} to disable retries
+   */
+  public AgentWorkflow(WorkflowTaskOptions activityOptions) {
+    this.activityOptions = activityOptions;
+  }
 
   @Override
   public WorkflowStub create() {
@@ -46,7 +71,7 @@ public final class AgentWorkflow implements Workflow {
       while (true) {
         LlmActivityInput llmInput =
             new LlmActivityInput(List.copyOf(conversation), request.toolSpecs(), options);
-        LlmResult llm = ctx.callActivity(LLM_ACTIVITY, llmInput, LlmResult.class).await();
+        LlmResult llm = runActivity(ctx, LLM_ACTIVITY, llmInput, LlmResult.class);
         conversation.add(llm.toMessageRecord());
 
         if (!llm.hasToolCalls()) {
@@ -58,11 +83,19 @@ public final class AgentWorkflow implements Workflow {
         for (ToolCallRecord call : llm.toolCalls()) {
           ToolActivityInput toolInput =
               new ToolActivityInput(call.id(), call.name(), call.arguments());
-          ToolResult result = ctx.callActivity(TOOL_ACTIVITY, toolInput, ToolResult.class).await();
+          ToolResult result = runActivity(ctx, TOOL_ACTIVITY, toolInput, ToolResult.class);
           batch.add(result);
         }
         conversation.add(ToolResult.toMessageRecord(batch));
       }
     };
+  }
+
+  // Schedule an activity with the configured retry options when present, plain otherwise.
+  private <V> V runActivity(WorkflowContext ctx, String name, Object input, Class<V> returnType) {
+    if (activityOptions != null) {
+      return ctx.callActivity(name, input, activityOptions, returnType).await();
+    }
+    return ctx.callActivity(name, input, returnType).await();
   }
 }

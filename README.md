@@ -70,9 +70,28 @@ re-executed on replay. How a tool is registered determines whether an
   `@Tool` bean.
 
 This is a property of executable code not being serializable — Dapr persists
-workflow state, not the tool's implementation. There is no retry/backoff on the
-tool activity today (a failed tool fails the workflow rather than waiting for
-re-registration).
+workflow state, not the tool's implementation. Note that retries (below) don't
+rescue this case: a request-scoped tool whose callback is gone after a cold
+restart will exhaust its attempts and then fail the workflow.
+
+## Retries
+
+The model call and each tool call run as workflow activities, and a transient
+failure (a provider rate limit, a network blip) is retried by the Dapr runtime
+instead of failing the whole workflow. Retries are **on by default** with
+exponential backoff; configure or disable them under `dapr.spring-ai.retry`:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `dapr.spring-ai.retry.enabled` | `true` | retry activities at all |
+| `dapr.spring-ai.retry.max-attempts` | `3` | total attempts, including the first |
+| `dapr.spring-ai.retry.first-interval` | `1s` | delay before the first retry |
+| `dapr.spring-ai.retry.backoff-coefficient` | `2.0` | interval multiplier per attempt |
+| `dapr.spring-ai.retry.max-interval` | `30s` | cap on the growing retry interval |
+
+The policy applies equally to the LLM and tool activities and is fixed at
+startup, so it stays constant across workflow replays. Retries are bounded by
+`max-attempts`, so a genuinely failing call still fails — just after a few tries.
 
 ## Model options
 

@@ -81,10 +81,17 @@ public class DaprSpringAiAutoConfiguration {
   /** The in-process workflow worker. Started non-blocking; closed on shutdown. */
   @Bean(destroyMethod = "close")
   public WorkflowRuntime daprWorkflowRuntime(
-      ChatModel chatModel, ChatOptionsFactory optionsFactory, DiscoveredTools tools) throws Exception {
+      ChatModel chatModel,
+      ChatOptionsFactory optionsFactory,
+      DiscoveredTools tools,
+      DaprSpringAiProperties properties)
+      throws Exception {
+    // Retry options are fixed here at startup and registered with the (single) workflow instance,
+    // so they stay constant across replays.
+    AgentWorkflow workflow = new AgentWorkflow(properties.retry().toWorkflowTaskOptions());
     WorkflowRuntime runtime =
         new WorkflowRuntimeBuilder()
-            .registerWorkflow(AgentWorkflow.class)
+            .registerWorkflow(workflow)
             .registerActivity(
                 AgentWorkflow.LLM_ACTIVITY, new LlmInvokeActivity(chatModel, optionsFactory))
             .registerActivity(AgentWorkflow.TOOL_ACTIVITY, new ToolInvokeActivity(tools.registry()))
