@@ -1,0 +1,11 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: kvstore
+spec:
+  type: state.in-memory
+  version: v1
+  metadata:
+    # Required: the workflow engine stores orchestration state as actor state.
+    - name: actorStateStore
+      value: "true"

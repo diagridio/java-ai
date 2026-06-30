@@ -4,6 +4,7 @@ import io.diagrid.springai.durable.instance.InstanceIdDerivation;
 import io.diagrid.springai.durable.workflow.AgentRequest;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.dapr.workflows.client.DaprWorkflowClient;
+import io.dapr.workflows.client.WorkflowRuntimeStatus;
 import io.dapr.workflows.client.WorkflowState;
 import java.time.Duration;
 import java.util.concurrent.TimeoutException;
@@ -54,10 +55,18 @@ public final class DurableRunner {
   public String run(AgentRequest request) throws TimeoutException {
     String instanceId = idDerivation.deriveInstanceId(request);
 
-    // Schedule unconditionally and let the backend be the authority on duplicates. We do NOT probe
-    // first: getWorkflowState returns a non-null (default RUNNING) state even for unknown instances,
-    // so it cannot distinguish "exists" from "absent". An "already exists" error is the normal
-    // attach path (in-flight or reissued request); any other error is real and propagates.
+    // Already completed? Return its result without re-running. This is the reissue/dedup path. It is
+    // safe despite getWorkflowState returning a non-null default state for unknown instances: an
+    // absent instance never reports COMPLETED, so this only short-circuits genuine completions.
+    // (The backend only rejects duplicate *active* ids; a completed id would otherwise re-run.)
+    WorkflowState existing = client.getWorkflowState(instanceId, true);
+    if (existing != null && existing.getRuntimeStatus() == WorkflowRuntimeStatus.COMPLETED) {
+      LOG.info("Attaching to completed workflow instance {}", instanceId);
+      return existing.readOutputAs(String.class);
+    }
+
+    // Otherwise schedule, treating an "already exists" collision (an in-flight duplicate) as the
+    // attach path; any other error is real and propagates rather than masking as a timeout.
     try {
       client.scheduleNewWorkflow(AgentWorkflow.NAME, request, instanceId);
       LOG.info("Scheduled new durable workflow instance {}", instanceId);
@@ -65,7 +74,7 @@ public final class DurableRunner {
       if (!isAlreadyExists(e)) {
         throw e;
       }
-      LOG.info("Instance {} already exists; attaching instead of creating", instanceId);
+      LOG.info("Instance {} already running; attaching instead of creating", instanceId);
     }
 
     WorkflowState completed = client.waitForWorkflowCompletion(instanceId, completionTimeout, true);

@@ -1,0 +1,24 @@
+server:
+  port: 8080
+
+spring:
+  application:
+    name: durable-chat
+  ai:
+    ollama:
+      base-url: http://localhost:11434
+      chat:
+        options:
+          model: llama3.1:8b
+          temperature: 0.0
+
+# The durability layer. All optional — these are the defaults.
+dapr:
+  spring-ai:
+    enabled: true
+    require-conversation-id: false
+    completion-timeout: 5m
+
+logging:
+  level:
+    io.diagrid.springai: INFO

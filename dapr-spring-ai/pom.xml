@@ -17,6 +17,7 @@
     <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
     <dapr.version>1.19.0-SB4-SNAPSHOT</dapr.version>
     <spring-ai.version>2.0.0</spring-ai.version>
+    <springboot.version>4.0.5</springboot.version>
     <!-- Jackson 2 = the version durabletask's DataConverter serializes activity payloads with.
          (Spring AI 2.0 itself uses Jackson 3 under tools.jackson; the two coexist on the classpath.) -->
     <jackson2.version>2.21.2</jackson2.version>
@@ -27,6 +28,7 @@
 
   <modules>
     <module>core</module>
+    <module>starter</module>
   </modules>
 
   <build>
@@ -57,6 +59,13 @@
 
   <dependencyManagement>
     <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${springboot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
       <dependency>
         <groupId>org.springframework.ai</groupId>
         <artifactId>spring-ai-bom</artifactId>
