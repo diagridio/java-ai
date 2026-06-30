@@ -12,6 +12,7 @@ import io.diagrid.springai.durable.workflow.ToolSpec;
 import java.time.Duration;
 import java.util.HashMap;
 import java.util.List;
+import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClientRequest;
@@ -19,6 +20,7 @@ import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
 
@@ -109,5 +111,80 @@ class DurableAdvisorToolsTest {
     List<String> advertised = runner.captured.toolSpecs().stream().map(ToolSpec::name).toList();
     assertTrue(advertised.contains("convert"));
     assertFalse(advertised.contains("getWeather"), "an agent that did not register WeatherTools must not be offered it");
+  }
+
+  /** Regression: a tool-less agent's options return null (not []) from getToolCallbacks(). */
+  @Test
+  void nullToolCallbacksAdvertisesNoToolsWithoutNpe() {
+    DiscoveredTools tools = new DiscoveredTools(); // no global @Tool beans, like ItineraryFormatter
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, tools, new MessageCodec());
+
+    Prompt prompt = new Prompt(List.of(new UserMessage("synthesize the itinerary")), new NullToolsOptions());
+    ChatClientRequest request = new ChatClientRequest(prompt, new HashMap<>());
+
+    // Must not NPE despite getToolCallbacks() == null.
+    String result =
+        advisor.adviseCall(request, null).chatResponse().getResult().getOutput().getText();
+    assertEquals("FINAL", result);
+    assertTrue(runner.captured.toolSpecs().isEmpty(), "a tool-less agent must advertise zero tools");
+  }
+
+  /** A ToolCallingChatOptions whose getToolCallbacks() is null — what a no-tools ChatClient yields. */
+  static class NullToolsOptions implements ToolCallingChatOptions {
+    @Override
+    public List<ToolCallback> getToolCallbacks() {
+      return null;
+    }
+
+    @Override
+    public Map<String, Object> getToolContext() {
+      return null;
+    }
+
+    @Override
+    public String getModel() {
+      return null;
+    }
+
+    @Override
+    public Double getFrequencyPenalty() {
+      return null;
+    }
+
+    @Override
+    public Integer getMaxTokens() {
+      return null;
+    }
+
+    @Override
+    public Double getPresencePenalty() {
+      return null;
+    }
+
+    @Override
+    public List<String> getStopSequences() {
+      return null;
+    }
+
+    @Override
+    public Double getTemperature() {
+      return null;
+    }
+
+    @Override
+    public Integer getTopK() {
+      return null;
+    }
+
+    @Override
+    public Double getTopP() {
+      return null;
+    }
+
+    @Override
+    public ToolCallingChatOptions.Builder<?> mutate() {
+      return null;
+    }
   }
 }

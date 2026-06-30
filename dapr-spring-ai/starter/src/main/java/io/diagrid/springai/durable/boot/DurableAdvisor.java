@@ -94,13 +94,18 @@ public final class DurableAdvisor implements CallAdvisor {
       byName.put(spec.name(), spec);
     }
     if (chatOptions instanceof ToolCallingChatOptions toolOptions) {
-      for (ToolCallback callback : toolOptions.getToolCallbacks()) {
-        ToolDefinition definition = callback.getToolDefinition();
-        tools.registry().register(definition.name(), callback::call);
-        byName.put(
-            definition.name(),
-            new ToolSpec(definition.name(), definition.description(), definition.inputSchema()));
-        LOG.debug("Advertising request-scoped tool '{}' to the durable workflow", definition.name());
+      // getToolCallbacks() can return null (not an empty list) for a ChatClient built with no
+      // tools — e.g. an LLM-only synthesis agent. Treat null as no request-scoped tools.
+      List<ToolCallback> callbacks = toolOptions.getToolCallbacks();
+      if (callbacks != null) {
+        for (ToolCallback callback : callbacks) {
+          ToolDefinition definition = callback.getToolDefinition();
+          tools.registry().register(definition.name(), callback::call);
+          byName.put(
+              definition.name(),
+              new ToolSpec(definition.name(), definition.description(), definition.inputSchema()));
+          LOG.debug("Advertising request-scoped tool '{}' to the durable workflow", definition.name());
+        }
       }
     }
     return List.copyOf(byName.values());
