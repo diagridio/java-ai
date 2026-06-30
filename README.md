@@ -74,6 +74,14 @@ workflow state, not the tool's implementation. Note that retries (below) don't
 rescue this case: a request-scoped tool whose callback is gone after a cold
 restart will exhaust its attempts and then fail the workflow.
 
+**Tool names share one namespace.** The execution registry maps a tool *name* to
+a single implementation, last registration wins. If two agents register
+different tools under the same name, the later one shadows the earlier for
+*everyone*, and a workflow can run the wrong implementation. Keep tool names
+unique across the application (e.g. prefix them per agent). (This affects only
+execution; for what's *advertised* to the model, a request-scoped tool correctly
+overrides a same-named global one for that call.)
+
 ## Retries
 
 The model call and each tool call run as workflow activities, and a transient
@@ -110,6 +118,8 @@ a default rather than on an individual request.
 - [ ] Chat memory backed by a Dapr state store — durable conversation history via Spring AI's `ChatMemory`
 - [ ] Agent registry backed by a Dapr state store
 - [x] Spring Boot auto-configuration / starter
+- [ ] Durable streaming (`ChatClient.stream()`) — today only `.call()` is durable
+- [ ] Workflow versioning — safely evolve the orchestrator with in-flight instances
 
 ## Requirements
 
