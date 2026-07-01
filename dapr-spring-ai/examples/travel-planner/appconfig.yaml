@@ -1,0 +1,12 @@
+apiVersion: dapr.io/v1alpha1
+kind: Configuration
+metadata:
+  name: appconfig
+spec:
+  workflow:
+    # How long Dapr retains workflow execution state after it reaches each terminal state.
+    stateRetentionPolicy:
+      anyTerminal: "48h"
+      completed: "20m"
+      failed: "48h"
+      terminated: "48h"

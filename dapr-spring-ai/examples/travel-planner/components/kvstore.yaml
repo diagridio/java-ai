@@ -1,0 +1,15 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: kvstore
+spec:
+  type: state.redis
+  version: v1
+  metadata:
+    - name: redisHost
+      value: localhost:6379
+    # Required: the Dapr workflow engine (used by dapr-spring-ai's DurableAdvisor) stores
+    # orchestration state as actor state. Redis persists it so runs are inspectable in the
+    # Diagrid dashboard and survive sidecar restarts.
+    - name: actorStateStore
+      value: "true"
