@@ -15,6 +15,60 @@ progress is checkpointed by the Dapr runtime. If the process crashes
 mid-conversation, the workflow resumes from the last completed step instead
 of replaying the whole interaction or losing it.
 
+## Wiring: build from the Spring-managed `ChatClient.Builder`
+
+Durability is applied by a Spring AI `CallAdvisor` that the starter attaches via a
+`ChatClientCustomizer`, and Spring AI runs customizers **only on the
+auto-configured `ChatClient.Builder` bean**. So *how* you build a `ChatClient`
+decides whether it's durable:
+
+- ✅ **Inject `ChatClient.Builder`** (the Spring-managed one) and build from it —
+  the durable advisor is already on it:
+  ```java
+  @Component
+  class WeatherAgent {
+    private final ChatClient client;
+    WeatherAgent(ChatClient.Builder builder) {          // managed → customized
+      this.client = builder.defaultSystem("...").build();
+    }
+  }
+  ```
+- ❌ **`ChatClient.builder(chatModel)`** builds a *fresh, unmanaged* builder — the
+  customizer never runs, so the client is **silently not durable**. Same for any
+  client you build straight from an injected `ChatModel`.
+
+**Multiple clients in one component** (e.g. a reflection agent with generate +
+critique clients): inject the managed builder and `clone()` it per client — each
+clone keeps the advisor:
+
+```java
+ReflectionAgent(ChatClient.Builder builder) {
+  this.generate = builder.clone().defaultSystem("...generate...").build();
+  this.critique = builder.clone().defaultSystem("...critique...").build();
+}
+```
+
+**Or attach the advisor manually** — the `DurableAdvisor` is an injectable bean, so
+if you must use `ChatClient.builder(chatModel)`, add it yourself:
+
+```java
+ReflectionAgent(ChatModel model, DurableAdvisor durable) {
+  this.generate = ChatClient.builder(model).defaultAdvisors(durable).build();
+}
+```
+
+> **Per-agent workflow names and agent-registry registration need a `ChatClient`
+> _bean_.** The steps above make a client *durable*, but per-agent workflow names
+> (`dapr.spring-ai.<name>.workflow`) and registry entries come from bean
+> post-processors that only see `ChatClient` **beans**. A client built as a field
+> inside a component is durable but uses the **generic** workflow name and isn't
+> registered. To get per-agent naming + registration, expose each `ChatClient` as
+> its own `@Bean` (the bean name becomes the agent name).
+
+See **[`dapr-spring-ai-starter/README.md`](dapr-spring-ai/dapr-spring-ai-starter/README.md)** for a
+short cookbook on defining agents — the two shapes (`@Component` vs `@Bean`), the hybrid pattern,
+tool crash-safety, and passing a conversationId.
+
 ## Durability key (demo vs production)
 
 Each call is run as a workflow identified by a deterministic **instance id** —
@@ -232,7 +286,15 @@ Notes:
 
 ## Requirements
 
-- Java 17+
+- **Java 17+** — the floor set by Spring AI 2.0 (via Spring Framework 7 / Spring Boot 4). The
+  library is compiled for Java 17, so it works on any Spring Boot 4 app.
+- **Java 21 recommended for the app runtime.** A durable `ChatClient.call()` blocks the caller until
+  its workflow completes (the call is synchronous by contract). On Java 21 with
+  `spring.threads.virtual.enabled=true`, that wait parks a *virtual* thread — nearly free — so the
+  blocking model scales. Pair it with a generous `dapr.spring-ai.completion-timeout` for slow calls;
+  the timeout is only a wait budget — the workflow keeps running past it and a re-issued call
+  reattaches, so no work is lost. (Java 25 runs fine too, but build the library on 17/21 — some
+  static-analysis tooling misbehaves on 25.)
 - Maven
 - A Dapr sidecar (workflow building block enabled)
 
