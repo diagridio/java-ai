@@ -9,8 +9,10 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param statestore Dapr state store component name (default {@code agent-registry} — the registry
  *                   store Catalyst provides out of the box, configured with {@code keyPrefix: none})
  * @param team       registry team that namespaces the agent keys (default {@code default})
- * @param appId      Dapr application id recorded on each agent; when blank, resolved from
- *                   {@code spring.application.name}
+ * @param appId      Dapr application id recorded on each agent — set to your actual Dapr app id
+ *                   (the sidecar's {@code --app-id}), since tooling correlates agents to their app
+ *                   and workflows by it. When blank, falls back to {@code spring.application.name},
+ *                   then {@code spring-ai-app}
  */
 @ConfigurationProperties("dapr.spring-ai.registry")
 public record AgentRegistryProperties(Boolean enabled, String statestore, String team, String appId) {

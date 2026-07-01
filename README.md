@@ -143,7 +143,12 @@ Configure under `dapr.spring-ai.registry`:
 | `dapr.spring-ai.registry.enabled` | `true` | register agents at all |
 | `dapr.spring-ai.registry.statestore` | `agent-registry` | Dapr state store component |
 | `dapr.spring-ai.registry.team` | `default` | namespaces the registry keys |
-| `dapr.spring-ai.registry.app-id` | `spring.application.name` | Dapr app id on each record |
+| `dapr.spring-ai.registry.app-id` | `spring.application.name`, else `spring-ai-app` | Dapr app id recorded on each agent — **set to your Dapr app id** (see note) |
+
+> **`app-id` must be your actual Dapr app id** (the sidecar's `--app-id`), because tooling
+> correlates an agent to its app and workflows by it. There is no reliable way to read the Dapr app
+> id from inside the app, so it defaults to `spring.application.name` purely as a convenience for
+> apps that name the two the same — if yours differ, set `dapr.spring-ai.registry.app-id` explicitly.
 
 > **The registry state store must use `keyPrefix: none`.** Otherwise Dapr's default
 > (`keyPrefix: appid`) prepends `<appId>||` to every key, siloing the registry per app so other

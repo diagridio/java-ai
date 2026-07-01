@@ -5,6 +5,8 @@ import io.dapr.client.DaprClientBuilder;
 import io.diagrid.springai.registry.AgentRecordFactory;
 import io.diagrid.springai.registry.AgentRegistrar;
 import java.util.Locale;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.prompt.ChatOptions;
@@ -30,6 +32,9 @@ import org.springframework.context.annotation.Bean;
     matchIfMissing = true)
 @EnableConfigurationProperties(AgentRegistryProperties.class)
 public class AgentRegistryAutoConfiguration {
+
+  private static final Logger LOG = LoggerFactory.getLogger(AgentRegistryAutoConfiguration.class);
+  private static final String DEFAULT_APP_ID = "spring-ai-app";
 
   @Bean
   @ConditionalOnMissingBean
@@ -71,10 +76,11 @@ public class AgentRegistryAutoConfiguration {
     if (configured != null && !configured.isBlank()) {
       return configured;
     }
-    if (applicationName != null && !applicationName.isBlank()) {
-      return applicationName;
-    }
-    return "spring-ai-app";
+    String fallback = applicationName != null && !applicationName.isBlank() ? applicationName : DEFAULT_APP_ID;
+    LOG.warn("dapr.spring-ai.registry.app-id is not set; recording agents under app id '{}'. Set it to "
+        + "your Dapr app id (the sidecar's --app-id) if that differs — tooling correlates agents to "
+        + "their app and workflows by it.", fallback);
+    return fallback;
   }
 
   // OllamaChatModel -> ollama, OpenAiChatModel -> openai.
