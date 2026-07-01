@@ -59,7 +59,7 @@ ReflectionAgent(ChatModel model, DurableAdvisor durable) {
 
 > **Per-agent workflow names and agent-registry registration need a `ChatClient`
 > _bean_.** The steps above make a client *durable*, but per-agent workflow names
-> (`dapr.spring-ai.<name>.workflow`) and registry entries come from bean
+> (`spring-ai.<name>.workflow`) and registry entries come from bean
 > post-processors that only see `ChatClient` **beans**. A client built as a field
 > inside a component is durable but uses the **generic** workflow name and isn't
 > registered. To get per-agent naming + registration, expose each `ChatClient` as
@@ -92,11 +92,11 @@ instead of silently using the hash.
 ## Workflow names: per agent, one orchestrator
 
 A single generic orchestrator runs every call, but it is registered under
-**multiple names**, all in the Dapr Agents shape (`dapr.spring-ai.….workflow`):
-**for each `ChatClient` bean, a per-agent name** `dapr.spring-ai.<bean>.workflow`
+**multiple names**, all sharing the shape `spring-ai.….workflow`:
+**for each `ChatClient` bean, a per-agent name** `spring-ai.<bean>.workflow`
 (so a bean named `weatherAssistant` runs under
-`dapr.spring-ai.weatherAssistant.workflow`), **plus a generic fallback**
-`dapr.spring-ai.workflow` for `ChatClient`s built inline (not beans). The
+`spring-ai.weatherAssistant.workflow`), **plus a generic fallback**
+`spring-ai.workflow` for `ChatClient`s built inline (not beans). The
 `.workflow` suffix and `dapr.<framework>.<agent>` shape are what let tooling like
 the Diagrid dashboard correlate an agent to its workflows.
 
@@ -187,7 +187,7 @@ format — a per-agent key `agents:{team}:{name}` plus a team index
 the durability layer (the durable ChatClient advisor is on its chain), otherwise
 `Agent` — so a Dapr-backed agent shows up as such in the registry. A durable
 agent's record also carries `agent.metadata.workflow_name` (e.g.
-`dapr.spring-ai.weatherAssistant.workflow`), the explicit key tooling uses to
+`spring-ai.weatherAssistant.workflow`), the explicit key tooling uses to
 correlate the agent with its workflows.
 
 Configure under `dapr.spring-ai.registry`:

@@ -30,7 +30,7 @@ class BookingAgent {
 }
 ```
 
-**`@Bean ChatClient`** — durable *and* named per agent, `dapr.spring-ai.<beanName>.workflow` (the
+**`@Bean ChatClient`** — durable *and* named per agent, `spring-ai.<beanName>.workflow` (the
 `.workflow` convention the Catalyst dashboard correlates by):
 
 ```java
