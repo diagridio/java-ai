@@ -1,0 +1,5 @@
+# SDKMAN environment for this module. Run `sdk env` to apply (sdk install java 21.0.11-tem first).
+# Java 21 (LTS): Spring Boot 4 runs on 17+, but 21 enables virtual threads so the durable, blocking
+# ChatClient.call() scales. Maven 3.9.0: required by Spring Boot 4 / current plugins.
+java=21.0.11-tem
+maven=3.9.0

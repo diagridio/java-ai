@@ -1,0 +1,7 @@
+version: 1
+common:
+  appLogDestination: console
+apps:
+  - appID: travel-planner-spring-ai-dapr
+    appDirPath: ./
+    command: ["mvn", "spring-boot:run"]

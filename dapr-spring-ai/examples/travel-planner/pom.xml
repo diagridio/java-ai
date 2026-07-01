@@ -1,0 +1,97 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- Standalone example app (NOT a module of the library build): consumes the installed starters. -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.0.5</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>io.diagrid.springai.examples</groupId>
+  <artifactId>travel-planner</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <name>travel-planner</name>
+  <description>Example: full-stack Spring AI travel planner — pure by default, with optional Dapr durability, memory, and agent registry enabled via Spring profiles</description>
+
+  <properties>
+    <java.version>21</java.version>
+    <spring-ai.version>2.0.0</spring-ai.version>
+    <dapr.version>1.19.0-SB4-SNAPSHOT</dapr.version>
+  </properties>
+
+  <dependencyManagement>
+    <dependencies>
+      <!-- Align Netty across Dapr's grpc-netty (4.1) and Spring Boot 4 / Ollama reactor-netty (4.2);
+           the mixed state otherwise breaks the Ollama client (MultiThreadIoEventLoopGroup is 4.2+).
+           Declared first so it wins over the versions the other BOMs pull in. -->
+      <dependency>
+        <groupId>io.netty</groupId>
+        <artifactId>netty-bom</artifactId>
+        <version>4.2.12.Final</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-bom</artifactId>
+        <version>${spring-ai.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <!-- Needed so the starters' transitive dapr-sdk-* SNAPSHOT versions resolve. -->
+      <dependency>
+        <groupId>io.dapr</groupId>
+        <artifactId>dapr-sdk-bom</artifactId>
+        <version>${dapr.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <dependencies>
+    <!-- Spring AI OpenAI model: ChatClient, tool calling (version managed by the BOM). -->
+    <dependency>
+      <groupId>org.springframework.ai</groupId>
+      <artifactId>spring-ai-starter-model-openai</artifactId>
+    </dependency>
+
+    <!-- REST endpoints. -->
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <!-- Dapr integration — all opt-in via the dapr / memory / registry Spring profiles (see README);
+         with no profile active none of these auto-configure and the app is plain Spring AI. -->
+    <dependency>
+      <groupId>io.diagrid</groupId>
+      <artifactId>dapr-spring-ai-starter</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>io.diagrid</groupId>
+      <artifactId>dapr-spring-ai-agent-registry</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+    </dependency>
+    <dependency>
+      <groupId>io.diagrid</groupId>
+      <artifactId>dapr-spring-ai-memory</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
