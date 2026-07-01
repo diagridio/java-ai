@@ -17,10 +17,10 @@ import org.springframework.beans.factory.config.BeanPostProcessor;
  */
 public final class DurableChatClientBeanPostProcessor implements BeanPostProcessor {
 
-  // Per-agent workflow name follows the dapr-agents convention dapr.{framework}.{agent}.workflow, so
-  // the name contains ".workflow" (tooling like the Catalyst dashboard correlates agents to workflows
-  // by that) and encodes the framework + agent (the ChatClient bean name).
-  private static final String WORKFLOW_NAME_PREFIX = "dapr.spring-ai.";
+  // Per-agent workflow name spring-ai.{agent}.workflow: it contains ".workflow" (tooling like the
+  // Catalyst dashboard correlates agents to workflows by that) and encodes the agent (the ChatClient
+  // bean name).
+  private static final String WORKFLOW_NAME_PREFIX = "spring-ai.";
   private static final String WORKFLOW_NAME_SUFFIX = ".workflow";
 
   private final ObjectProvider<DurableRunner> runner;
@@ -37,7 +37,7 @@ public final class DurableChatClientBeanPostProcessor implements BeanPostProcess
   }
 
   /**
-   * The per-agent workflow name for a ChatClient bean, e.g. {@code dapr.spring-ai.weatherAssistant.workflow}.
+   * The per-agent workflow name for a ChatClient bean, e.g. {@code spring-ai.weatherAssistant.workflow}.
    * The auto-configuration registers the orchestrator under this same name.
    *
    * @param beanName the ChatClient bean name

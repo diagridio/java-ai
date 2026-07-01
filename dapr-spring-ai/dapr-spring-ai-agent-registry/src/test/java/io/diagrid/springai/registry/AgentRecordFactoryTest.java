@@ -77,11 +77,11 @@ class AgentRecordFactoryTest {
     AgentMetadata built =
         factory.build("weatherAssistant", request(new SystemMessage("x"), options), true).agent();
     assertEquals("DurableAgent", built.type());
-    assertEquals("dapr.spring-ai.weatherAssistant.workflow", built.metadata().get("workflow_name"));
+    assertEquals("spring-ai.weatherAssistant.workflow", built.metadata().get("workflow_name"));
 
     AgentMetadata thin = factory.buildThin("weatherAssistant", true).agent();
     assertEquals("DurableAgent", thin.type());
-    assertEquals("dapr.spring-ai.weatherAssistant.workflow", thin.metadata().get("workflow_name"));
+    assertEquals("spring-ai.weatherAssistant.workflow", thin.metadata().get("workflow_name"));
   }
 
   @Test

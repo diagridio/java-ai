@@ -38,12 +38,12 @@ import java.util.List;
  */
 public final class AgentWorkflow implements Workflow {
 
-  // Generic (fallback) workflow name for ChatClients that are not beans, in the Dapr Agents shape
-  // (contains ".workflow"). Bean-defined agents use dapr.spring-ai.{bean}.workflow instead (see
-  // DurableChatClientBeanPostProcessor). The worker registers the orchestrator under this name
-  // explicitly (registerWorkflow(NAME, ...)), and scheduling uses the same NAME — so it need not
-  // match the class name.
-  public static final String NAME = "dapr.spring-ai.workflow";
+  // Generic (fallback) workflow name for ChatClients that are not beans. Contains ".workflow" so
+  // tooling (e.g. the Catalyst dashboard) can list it; bean-defined agents use
+  // spring-ai.{bean}.workflow instead (see DurableChatClientBeanPostProcessor). The worker registers
+  // the orchestrator under this name explicitly (registerWorkflow(NAME, ...)), and scheduling uses
+  // the same NAME — so it need not match the class name.
+  public static final String NAME = "spring-ai.workflow";
   public static final String LLM_ACTIVITY = "dsa.llm.invoke";
   public static final String TOOL_ACTIVITY = "dsa.tool.invoke";
 

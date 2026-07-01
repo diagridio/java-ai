@@ -99,7 +99,7 @@ class DurableAdvisorToolsTest {
     assertEquals(Ordered.LOWEST_PRECEDENCE - 2, perAgent.getOrder());
     assertTrue(perAgent.getOrder() < generic.getOrder(), "per-agent advisor must win by precedence");
 
-    assertEquals("dapr.spring-ai.weatherAssistant.workflow",
+    assertEquals("spring-ai.weatherAssistant.workflow",
         DurableChatClientBeanPostProcessor.workflowName("weatherAssistant"),
         "per-agent workflow name follows the dapr-agents convention (contains .workflow)");
   }

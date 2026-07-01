@@ -100,7 +100,7 @@ public class DaprSpringAiAutoConfiguration {
                 AgentWorkflow.LLM_ACTIVITY, new LlmInvokeActivity(chatModel, optionsFactory))
             .registerActivity(AgentWorkflow.TOOL_ACTIVITY, new ToolInvokeActivity(tools.registry()));
     // Register the same orchestrator logic under each ChatClient bean's per-agent workflow name
-    // (dapr.spring-ai.{bean}.workflow) so calls scheduled under it (see DurableChatClientBeanPostProcessor)
+    // (spring-ai.{bean}.workflow) so calls scheduled under it (see DurableChatClientBeanPostProcessor)
     // resolve. A fresh instance per name avoids any instance-level dedup. Bean names come from the
     // definitions (no instantiation).
     for (String beanName : context.getBeanNamesForType(ChatClient.class, false, false)) {

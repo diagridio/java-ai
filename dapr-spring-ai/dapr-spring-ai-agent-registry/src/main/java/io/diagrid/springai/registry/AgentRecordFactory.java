@@ -29,7 +29,7 @@ public final class AgentRecordFactory {
   private static final String FRAMEWORK = "spring-ai";
   // Per-agent workflow name convention, mirrored from the durability starter's
   // DurableChatClientBeanPostProcessor so consumers can correlate an agent to its workflow.
-  private static final String WORKFLOW_NAME_PREFIX = "dapr.spring-ai.";
+  private static final String WORKFLOW_NAME_PREFIX = "spring-ai.";
   private static final String WORKFLOW_NAME_SUFFIX = ".workflow";
   private static final String WORKFLOW_NAME_KEY = "workflow_name";
 
@@ -89,7 +89,7 @@ public final class AgentRecordFactory {
     return durable ? TYPE_DURABLE : TYPE_STANDARD;
   }
 
-  // The per-agent workflow name (dapr.spring-ai.{name}.workflow), recorded for a durable agent so
+  // The per-agent workflow name (spring-ai.{name}.workflow), recorded for a durable agent so
   // consumers can correlate the agent to its workflow.
   private static String workflowName(String name) {
     return WORKFLOW_NAME_PREFIX + name + WORKFLOW_NAME_SUFFIX;
