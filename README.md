@@ -189,11 +189,42 @@ annotations, no stack inspection), and it has limits worth knowing:
 - **Only `.call()` is covered**, not `.stream()`.
 - A registry write never breaks a call: failures are logged and swallowed.
 
+## Chat memory
+
+The `dapr-spring-ai-memory` module (separate dependency) backs Spring AI's chat
+memory with a Dapr state store, so conversation history survives restarts and is
+shared across replicas — durable conversations to go with durable execution.
+
+It provides a `ChatMemoryRepository` (registered *before* Spring AI's default)
+that persists each conversation's messages to a Dapr state store keyed by
+conversation id; Spring AI's `MessageWindowChatMemory` uses it transparently.
+Configure under `dapr.spring-ai.memory`:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `dapr.spring-ai.memory.enabled` | `true` | back chat memory with Dapr |
+| `dapr.spring-ai.memory.statestore` | `agent-memory` | Dapr state store component (Catalyst provides this by default) |
+| `dapr.spring-ai.memory.agent-name` | `default` | key namespace (see below) |
+
+Notes:
+
+- You still opt into chat memory the usual Spring AI way (a memory advisor on
+  your `ChatClient`); this module only makes its storage durable — no code change
+  beyond that.
+- Keys use the Dapr Agents format **`{agent-name}:_memory_{conversationId}`**
+  (agent-name spaces → dashes, whole key lowercased), so records interoperate with
+  Dapr Agents' memory layout. Set `agent-name` to a specific agent if you want to
+  match it; our `ChatMemoryRepository` is shared across agents, so it's an
+  app-level namespace (default `default`).
+- Only conversational turns (user/assistant/system) are persisted, as
+  `{type, text}`; tool messages are not.
+- A user-supplied `ChatMemoryRepository` bean takes precedence.
+
 ## Roadmap
 
 - [x] `dapr-spring-ai` — durable `ChatClient` over Dapr Workflows
 - [ ] Dapr [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/) integration — Spring AI `ChatModel` backed by Dapr's Conversation building block
-- [ ] Chat memory backed by a Dapr state store — durable conversation history via Spring AI's `ChatMemory`
+- [x] Chat memory backed by a Dapr state store — durable conversation history via Spring AI's `ChatMemory`
 - [x] Agent registry backed by a Dapr state store
 - [x] Spring Boot auto-configuration / starter
 - [ ] Durable streaming (`ChatClient.stream()`) — today only `.call()` is durable
