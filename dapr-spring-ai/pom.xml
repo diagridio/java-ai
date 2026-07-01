@@ -34,6 +34,7 @@
   <modules>
     <module>dapr-spring-ai-core</module>
     <module>dapr-spring-ai-starter</module>
+    <module>dapr-spring-ai-agent-registry</module>
   </modules>
 
   <build>

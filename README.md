@@ -111,12 +111,78 @@ call: `model`, `temperature`, `maxTokens`, `topP`, `topK`, `stopSequences`,
 `application.yml`), not when passed per call — so set provider-specific tuning as
 a default rather than on an individual request.
 
+## Agent registry
+
+The `dapr-spring-ai-agent-registry` module (separate dependency, independent of
+durability) publishes each agent to a Dapr state store so tooling like the
+Diagrid dashboard and other Dapr Agents can discover it. Add the dependency and
+it works with no code changes.
+
+Each `ChatClient` **bean** is registered in two steps: a **thin record**
+(name, app id, model) is written **at startup** so the agent shows up
+immediately, and on its **first call** the record is **enriched** with the live
+system prompt and the tools actually advertised. Capturing the prompt/tools from
+a real call (rather than guessing at startup) keeps the record accurate without
+reflecting into Spring AI internals. The record uses the canonical `dapr-agents`
+format — a per-agent key `agents:{team}:{name}` plus a team index
+`agents:{team}:_index`. The `type` is `DurableAgent` when the agent runs under
+the durability layer (the durable ChatClient advisor is on its chain), otherwise
+`Agent` — so a Dapr-backed agent shows up as such in the registry.
+
+Configure under `dapr.spring-ai.registry`:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `dapr.spring-ai.registry.enabled` | `true` | register agents at all |
+| `dapr.spring-ai.registry.statestore` | `agent-registry` | Dapr state store component |
+| `dapr.spring-ai.registry.team` | `default` | namespaces the registry keys |
+| `dapr.spring-ai.registry.app-id` | `spring.application.name` | Dapr app id on each record |
+
+> **The registry state store must use `keyPrefix: none`.** Otherwise Dapr's default
+> (`keyPrefix: appid`) prepends `<appId>||` to every key, siloing the registry per app so other
+> Dapr Agents can't discover it under the shared `agents:{team}:*` namespace. Catalyst's built-in
+> `agent-registry` component (the default) is already configured this way; on self-hosted Dapr,
+> create a dedicated component for it — do **not** reuse your durability/workflow store (that one is
+> app-scoped with `actorStateStore: true`):
+>
+> ```yaml
+> apiVersion: dapr.io/v1alpha1
+> kind: Component
+> metadata:
+>   name: agent-registry
+> spec:
+>   type: state.redis
+>   version: v1
+>   metadata:
+>     - name: redisHost
+>       value: localhost:6379
+>     - name: keyPrefix
+>       value: none
+> ```
+
+### Identity and limitations
+
+An agent's name is the **`ChatClient` bean name**. This is deliberate (no
+annotations, no stack inspection), and it has limits worth knowing:
+
+- **Only ChatClients that are Spring beans are registered.** A `ChatClient`
+  built inline inside a service (not exposed as a bean) is invisible to the
+  registry — expose it as a `@Bean` to give it an identity.
+- **The name is the bean name**, so name your beans meaningfully
+  (`weatherAssistant`, `itineraryFormatter`).
+- **A single shared `ChatClient` bean is one agent**, even if used for several
+  logical roles.
+- **The system prompt and tools are filled on first call**, not at startup — an
+  agent is present from boot but its prompt/tools appear only after it is used.
+- **Only `.call()` is covered**, not `.stream()`.
+- A registry write never breaks a call: failures are logged and swallowed.
+
 ## Roadmap
 
 - [x] `dapr-spring-ai` — durable `ChatClient` over Dapr Workflows
 - [ ] Dapr [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/) integration — Spring AI `ChatModel` backed by Dapr's Conversation building block
 - [ ] Chat memory backed by a Dapr state store — durable conversation history via Spring AI's `ChatMemory`
-- [ ] Agent registry backed by a Dapr state store
+- [x] Agent registry backed by a Dapr state store
 - [x] Spring Boot auto-configuration / starter
 - [ ] Durable streaming (`ChatClient.stream()`) — today only `.call()` is durable
 - [ ] Workflow versioning — safely evolve the orchestrator with in-flight instances
