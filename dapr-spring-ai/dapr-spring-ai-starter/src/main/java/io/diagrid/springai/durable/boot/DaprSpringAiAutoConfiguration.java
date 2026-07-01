@@ -7,9 +7,11 @@ import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.diagrid.springai.durable.workflow.ChatOptionsFactory;
 import io.diagrid.springai.durable.workflow.LlmInvokeActivity;
 import io.diagrid.springai.durable.workflow.ToolInvokeActivity;
+import io.dapr.workflows.WorkflowTaskOptions;
 import io.dapr.workflows.client.DaprWorkflowClient;
 import io.dapr.workflows.runtime.WorkflowRuntime;
 import io.dapr.workflows.runtime.WorkflowRuntimeBuilder;
+import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientCustomizer;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.boot.autoconfigure.AutoConfiguration;
@@ -17,6 +19,7 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnClass;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnMissingBean;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.boot.context.properties.EnableConfigurationProperties;
+import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.context.ApplicationContext;
 import org.springframework.context.annotation.Bean;
@@ -84,18 +87,27 @@ public class DaprSpringAiAutoConfiguration {
       ChatModel chatModel,
       ChatOptionsFactory optionsFactory,
       DiscoveredTools tools,
-      DaprSpringAiProperties properties)
+      DaprSpringAiProperties properties,
+      ApplicationContext context)
       throws Exception {
-    // Retry options are fixed here at startup and registered with the (single) workflow instance,
-    // so they stay constant across replays.
-    AgentWorkflow workflow = new AgentWorkflow(properties.retry().toWorkflowTaskOptions());
-    WorkflowRuntime runtime =
+    // Retry options are fixed here at startup and shared by every workflow instance (read-only), so
+    // they stay constant across replays.
+    WorkflowTaskOptions activityOptions = properties.retry().toWorkflowTaskOptions();
+    WorkflowRuntimeBuilder builder =
         new WorkflowRuntimeBuilder()
-            .registerWorkflow(workflow)
+            .registerWorkflow(AgentWorkflow.NAME, new AgentWorkflow(activityOptions), null, null)
             .registerActivity(
                 AgentWorkflow.LLM_ACTIVITY, new LlmInvokeActivity(chatModel, optionsFactory))
-            .registerActivity(AgentWorkflow.TOOL_ACTIVITY, new ToolInvokeActivity(tools.registry()))
-            .build();
+            .registerActivity(AgentWorkflow.TOOL_ACTIVITY, new ToolInvokeActivity(tools.registry()));
+    // Register the same orchestrator logic under each ChatClient bean's per-agent workflow name
+    // (dapr.spring-ai.{bean}.workflow) so calls scheduled under it (see DurableChatClientBeanPostProcessor)
+    // resolve. A fresh instance per name avoids any instance-level dedup. Bean names come from the
+    // definitions (no instantiation).
+    for (String beanName : context.getBeanNamesForType(ChatClient.class, false, false)) {
+      String workflowName = DurableChatClientBeanPostProcessor.workflowName(beanName);
+      builder.registerWorkflow(workflowName, new AgentWorkflow(activityOptions), null, null);
+    }
+    WorkflowRuntime runtime = builder.build();
     runtime.start(false);
     return runtime;
   }
@@ -110,5 +122,15 @@ public class DaprSpringAiAutoConfiguration {
   @Bean
   public ChatClientCustomizer daprDurableChatClientCustomizer(DurableAdvisor advisor) {
     return builder -> builder.defaultAdvisors(advisor);
+  }
+
+  /**
+   * Attaches a per-agent durable advisor to each ChatClient bean (workflow named after the bean).
+   * Static so the post-processor does not force early initialization of the config class.
+   */
+  @Bean
+  public static DurableChatClientBeanPostProcessor daprDurableChatClientBeanPostProcessor(
+      ObjectProvider<DurableRunner> runner, ObjectProvider<DiscoveredTools> tools) {
+    return new DurableChatClientBeanPostProcessor(runner, tools);
   }
 }

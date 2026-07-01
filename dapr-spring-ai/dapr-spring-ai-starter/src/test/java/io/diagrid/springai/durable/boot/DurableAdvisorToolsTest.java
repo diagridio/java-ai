@@ -8,6 +8,7 @@ import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
 import io.diagrid.springai.durable.instance.InstanceIdDerivation;
 import io.diagrid.springai.durable.workflow.AgentRequest;
+import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.diagrid.springai.durable.workflow.ChatOptionsSpec;
 import io.diagrid.springai.durable.workflow.ToolSpec;
 import java.time.Duration;
@@ -24,6 +25,7 @@ import org.springframework.ai.support.ToolCallbacks;
 import org.springframework.ai.tool.ToolCallback;
 import org.springframework.ai.tool.annotation.Tool;
 import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.core.Ordered;
 
 /**
  * Verifies the bug fix: {@link DurableAdvisor} advertises request-scoped tools (from the prompt's
@@ -48,17 +50,19 @@ class DurableAdvisorToolsTest {
     }
   }
 
-  /** Captures the AgentRequest the advisor would hand to the workflow, without touching Dapr. */
+  /** Captures the AgentRequest (and workflow name) the advisor would hand to the workflow. */
   static class CapturingRunner extends DurableRunner {
     AgentRequest captured;
+    String capturedWorkflowName;
 
     CapturingRunner() {
       super(null, new InstanceIdDerivation(), Duration.ofSeconds(1));
     }
 
     @Override
-    public String run(AgentRequest request) {
+    public String run(AgentRequest request, String workflowName) {
       this.captured = request;
+      this.capturedWorkflowName = workflowName;
       return "FINAL";
     }
   }
@@ -77,6 +81,27 @@ class DurableAdvisorToolsTest {
         ToolCallingChatOptions.builder().toolCallbacks(ToolCallbacks.from(toolObjects)).build();
     Prompt prompt = new Prompt(List.of(new UserMessage("what is the weather in Paris?")), options);
     return new ChatClientRequest(prompt, new HashMap<>());
+  }
+
+  @Test
+  void perAgentAdvisorUsesBeanNameAndOutranksGeneric() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor generic = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+    DurableAdvisor perAgent =
+        new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec(), "weatherAssistant");
+
+    generic.adviseCall(requestWithTools(), null);
+    assertEquals(AgentWorkflow.NAME, runner.capturedWorkflowName, "generic advisor uses the shared name");
+    assertEquals(Ordered.LOWEST_PRECEDENCE - 1, generic.getOrder());
+
+    perAgent.adviseCall(requestWithTools(), null);
+    assertEquals("weatherAssistant", runner.capturedWorkflowName, "per-agent advisor uses the given name");
+    assertEquals(Ordered.LOWEST_PRECEDENCE - 2, perAgent.getOrder());
+    assertTrue(perAgent.getOrder() < generic.getOrder(), "per-agent advisor must win by precedence");
+
+    assertEquals("dapr.spring-ai.weatherAssistant.workflow",
+        DurableChatClientBeanPostProcessor.workflowName("weatherAssistant"),
+        "per-agent workflow name follows the dapr-agents convention (contains .workflow)");
   }
 
   @Test

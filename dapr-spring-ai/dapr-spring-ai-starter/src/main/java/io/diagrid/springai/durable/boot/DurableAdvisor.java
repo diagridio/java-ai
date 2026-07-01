@@ -3,6 +3,7 @@ package io.diagrid.springai.durable.boot;
 import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
 import io.diagrid.springai.durable.workflow.AgentRequest;
+import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.diagrid.springai.durable.workflow.ChatOptionsSpec;
 import io.diagrid.springai.durable.workflow.ToolSpec;
 import java.util.HashMap;
@@ -28,11 +29,14 @@ import org.slf4j.LoggerFactory;
  * Makes a {@code ChatClient.call()} durable by running it as a Dapr Workflow instead of invoking the
  * model in-process.
  *
- * <p><b>Order.</b> Runs at {@link Ordered#LOWEST_PRECEDENCE} - 1: late enough that the request it
- * captures already has memory/RAG context and the tools that Spring AI's {@code ToolCallingAdvisor}
- * (and request building) merged into the prompt options, but strictly before the terminal
- * model-call advisor (which is at LOWEST_PRECEDENCE) so this advisor reliably runs and short-circuits
- * it. It does NOT call the rest of the chain.
+ * <p><b>Order.</b> Runs just before the terminal model-call advisor (at {@link Ordered#LOWEST_PRECEDENCE}):
+ * late enough that the request it captures already has memory/RAG context and the tools that Spring
+ * AI's {@code ToolCallingAdvisor} (and request building) merged into the prompt options, but strictly
+ * before the terminal advisor so this one reliably runs and short-circuits it. It does NOT call the
+ * rest of the chain. The <b>generic</b> instance (added to every ChatClient) runs at
+ * {@code LOWEST_PRECEDENCE - 1}; a <b>per-agent</b> instance (added to a named ChatClient bean, running
+ * under a workflow named after the bean) runs at {@code LOWEST_PRECEDENCE - 2} so it wins over the
+ * generic one on the same client.
  *
  * <p><b>Tools.</b> The advertised tool surface is the union of (a) globally discovered {@code @Tool}
  * beans and (b) the request-scoped tools attached to this specific ChatClient via
@@ -55,11 +59,31 @@ public final class DurableAdvisor implements CallAdvisor {
   private final DurableRunner runner;
   private final DiscoveredTools tools;
   private final MessageCodec codec;
+  private final String workflowName;
+  private final int order;
 
+  /** Generic advisor for every ChatClient: runs the shared {@link AgentWorkflow} type. */
   public DurableAdvisor(DurableRunner runner, DiscoveredTools tools, MessageCodec codec) {
+    this(runner, tools, codec, AgentWorkflow.NAME, Ordered.LOWEST_PRECEDENCE - 1);
+  }
+
+  /**
+   * Per-agent advisor for a named ChatClient bean: runs a workflow named after the bean, at higher
+   * precedence so it wins over the generic advisor present on the same client.
+   *
+   * @param workflowName the per-agent workflow name (the ChatClient bean name)
+   */
+  public DurableAdvisor(DurableRunner runner, DiscoveredTools tools, MessageCodec codec, String workflowName) {
+    this(runner, tools, codec, workflowName, Ordered.LOWEST_PRECEDENCE - 2);
+  }
+
+  private DurableAdvisor(
+      DurableRunner runner, DiscoveredTools tools, MessageCodec codec, String workflowName, int order) {
     this.runner = runner;
     this.tools = tools;
     this.codec = codec;
+    this.workflowName = workflowName;
+    this.order = order;
   }
 
   @Override
@@ -74,7 +98,7 @@ public final class DurableAdvisor implements CallAdvisor {
 
     String finalText;
     try {
-      finalText = runner.run(agentRequest);
+      finalText = runner.run(agentRequest, workflowName);
     } catch (Exception e) {
       throw new IllegalStateException("Durable ChatClient call failed", e);
     }
@@ -123,8 +147,8 @@ public final class DurableAdvisor implements CallAdvisor {
 
   @Override
   public int getOrder() {
-    // Strictly before the terminal ChatModelCallAdvisor (LOWEST_PRECEDENCE); after the
-    // ToolCallingAdvisor + request building that merge tools into the prompt options.
-    return Ordered.LOWEST_PRECEDENCE - 1;
+    // Just before the terminal ChatModelCallAdvisor (LOWEST_PRECEDENCE), after the ToolCallingAdvisor
+    // + request building. Per-agent advisors sit one step earlier so they win over the generic one.
+    return order;
   }
 }

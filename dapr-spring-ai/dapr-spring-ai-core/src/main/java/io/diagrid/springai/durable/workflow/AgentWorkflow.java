@@ -19,14 +19,16 @@ import java.util.List;
  * the accumulated {@code conversation} list is rebuilt identically. All data formatting and the
  * model/tool I/O happen inside activities.
  *
- * <p><b>One workflow type for every agent (by design).</b> Unlike Dapr Agents, which registers a
- * per-agent workflow ({@code dapr.<framework>.<agent>.workflow}), this layer registers a single
- * generic workflow ({@link #NAME}) for all {@code ChatClient} calls. Durability here is transparent
- * ChatClient interception with no agent-identity concept: the advisor wraps any ChatClient and runs
- * this same loop. Per-agent workflow names would require an opt-in agent name registered at startup
- * (durabletask needs the name registered before scheduling), which would also dent the zero-code
- * drop-in. Agents/conversations are instead distinguished by the <em>instance id</em>
- * (conversation-id keyed), not the workflow type — see {@code InstanceIdDerivation}.
+ * <p><b>One orchestrator, registered under several names.</b> This single generic orchestrator runs
+ * the loop for every {@code ChatClient} call. It is registered under {@link #NAME} (the fallback used
+ * by inline-built clients) and <em>additionally</em> under each {@code ChatClient} <b>bean name</b>,
+ * so a bean-defined agent's calls run under a workflow named after the agent — like Dapr Agents'
+ * per-agent workflow names, for readable grouping in tooling — while inline clients fall back to the
+ * generic name. Which name a given call uses is chosen by the durable advisor attached to that client
+ * (see {@code DurableAdvisor} / {@code DurableChatClientBeanPostProcessor}); durabletask requires
+ * every name to be registered before scheduling, which the auto-configuration does at startup from
+ * the ChatClient bean definitions. Agents/conversations remain distinguished by the <em>instance
+ * id</em> (conversation-id keyed) — see {@code InstanceIdDerivation}.
  *
  * <p><b>Activity retries.</b> When constructed with a {@link WorkflowTaskOptions} carrying a retry
  * policy, every LLM and tool activity is scheduled with it, so a transient failure (provider rate
@@ -36,9 +38,12 @@ import java.util.List;
  */
 public final class AgentWorkflow implements Workflow {
 
-  // Must equal the name the workflow is registered under. registerWorkflow(AgentWorkflow.class)
-  // registers under the canonical class name, so derive NAME from the class to prevent drift.
-  public static final String NAME = AgentWorkflow.class.getName();
+  // Generic (fallback) workflow name for ChatClients that are not beans, in the Dapr Agents shape
+  // (contains ".workflow"). Bean-defined agents use dapr.spring-ai.{bean}.workflow instead (see
+  // DurableChatClientBeanPostProcessor). The worker registers the orchestrator under this name
+  // explicitly (registerWorkflow(NAME, ...)), and scheduling uses the same NAME — so it need not
+  // match the class name.
+  public static final String NAME = "dapr.spring-ai.workflow";
   public static final String LLM_ACTIVITY = "dsa.llm.invoke";
   public static final String TOOL_ACTIVITY = "dsa.tool.invoke";
 

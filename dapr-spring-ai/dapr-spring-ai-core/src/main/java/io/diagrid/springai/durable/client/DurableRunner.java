@@ -48,11 +48,22 @@ public class DurableRunner {
   }
 
   /**
-   * Runs the request durably and returns the final assistant text.
+   * Runs the request durably under the generic {@link AgentWorkflow#NAME} workflow type.
    *
    * @throws TimeoutException if the workflow does not complete within the configured timeout
    */
   public String run(AgentRequest request) throws TimeoutException {
+    return run(request, AgentWorkflow.NAME);
+  }
+
+  /**
+   * Runs the request durably under the given workflow name and returns the final assistant text. The
+   * name lets a per-agent workflow (named after the ChatClient bean) be used instead of the generic
+   * type; it must be a name registered on the worker.
+   *
+   * @throws TimeoutException if the workflow does not complete within the configured timeout
+   */
+  public String run(AgentRequest request, String workflowName) throws TimeoutException {
     String instanceId = idDerivation.deriveInstanceId(request);
 
     // Already completed? Return its result without re-running. This is the reissue/dedup path. It is
@@ -68,8 +79,8 @@ public class DurableRunner {
     // Otherwise schedule, treating an "already exists" collision (an in-flight duplicate) as the
     // attach path; any other error is real and propagates rather than masking as a timeout.
     try {
-      client.scheduleNewWorkflow(AgentWorkflow.NAME, request, instanceId);
-      LOG.info("Scheduled new durable workflow instance {}", instanceId);
+      client.scheduleNewWorkflow(workflowName, request, instanceId);
+      LOG.info("Scheduled new durable workflow instance {} ({})", instanceId, workflowName);
     } catch (RuntimeException e) {
       if (!isAlreadyExists(e)) {
         throw e;

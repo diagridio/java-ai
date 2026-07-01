@@ -48,9 +48,9 @@ public final class WorkerMain {
 
     WorkflowRuntimeBuilder builder =
         new WorkflowRuntimeBuilder()
-            // Register by class: durabletask registers under the canonical name, which equals
-            // AgentWorkflow.NAME, so the client's scheduleNewWorkflow(NAME, ...) matches.
-            .registerWorkflow(AgentWorkflow.class)
+            // Register the orchestrator under AgentWorkflow.NAME explicitly so the client's
+            // scheduleNewWorkflow(NAME, ...) matches (NAME is no longer the class name).
+            .registerWorkflow(AgentWorkflow.NAME, AgentWorkflow.class)
             .registerActivity(AgentWorkflow.LLM_ACTIVITY, (WorkflowActivity) countingLlm)
             .registerActivity(AgentWorkflow.TOOL_ACTIVITY, toolActivity);
 

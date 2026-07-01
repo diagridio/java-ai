@@ -35,19 +35,23 @@ For production, set a conversation id on your calls, and optionally set
 `dapr.spring-ai.require-conversation-id=true` so a call without one fails fast
 instead of silently using the hash.
 
-## Workflow type: one for all agents
+## Workflow names: per agent, one orchestrator
 
-Every `ChatClient` call runs as the **same** workflow type
-(`io.diagrid.springai.durable.workflow.AgentWorkflow`), registered once at
-startup. This differs from Dapr Agents, which registers a per-agent workflow
-(`dapr.<framework>.<agent>.workflow`) because it has explicit, named agent
-objects. Here durability is transparent `ChatClient` interception with no
-agent-identity concept, so a single generic workflow serves all of them, and
-**agents/conversations are distinguished by the instance id** (the
-conversation-keyed id above), not by the workflow name. Per-agent workflow
-names would require an opt-in agent name registered at startup (durabletask
-needs a workflow name registered before it can be scheduled) and would erode
-the zero-code drop-in — a deliberate trade-off, not an oversight.
+A single generic orchestrator runs every call, but it is registered under
+**multiple names**, all in the Dapr Agents shape (`dapr.spring-ai.….workflow`):
+**for each `ChatClient` bean, a per-agent name** `dapr.spring-ai.<bean>.workflow`
+(so a bean named `weatherAssistant` runs under
+`dapr.spring-ai.weatherAssistant.workflow`), **plus a generic fallback**
+`dapr.spring-ai.workflow` for `ChatClient`s built inline (not beans). The
+`.workflow` suffix and `dapr.<framework>.<agent>` shape are what let tooling like
+the Diagrid dashboard correlate an agent to its workflows.
+
+This stays zero-code: the names come from your bean names, discovered at startup
+(durabletask requires every workflow name to be registered before it can be
+scheduled, which the auto-configuration does from the ChatClient bean
+definitions). Dedup/reattach is unchanged — **agents/conversations are still
+distinguished by the instance id** (the conversation-keyed id above), not the
+workflow name.
 
 ## Tools and crash recovery
 
@@ -127,7 +131,10 @@ reflecting into Spring AI internals. The record uses the canonical `dapr-agents`
 format — a per-agent key `agents:{team}:{name}` plus a team index
 `agents:{team}:_index`. The `type` is `DurableAgent` when the agent runs under
 the durability layer (the durable ChatClient advisor is on its chain), otherwise
-`Agent` — so a Dapr-backed agent shows up as such in the registry.
+`Agent` — so a Dapr-backed agent shows up as such in the registry. A durable
+agent's record also carries `agent.metadata.workflow_name` (e.g.
+`dapr.spring-ai.weatherAssistant.workflow`), the explicit key tooling uses to
+correlate the agent with its workflows.
 
 Configure under `dapr.spring-ai.registry`:
 

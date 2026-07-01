@@ -7,6 +7,7 @@ import io.diagrid.springai.registry.model.ToolMetadata;
 import java.time.Instant;
 import java.util.ArrayList;
 import java.util.List;
+import java.util.Map;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.messages.SystemMessage;
@@ -26,6 +27,11 @@ public final class AgentRecordFactory {
   private static final String TYPE_DURABLE = "DurableAgent";
   private static final String TYPE_STANDARD = "Agent";
   private static final String FRAMEWORK = "spring-ai";
+  // Per-agent workflow name convention, mirrored from the durability starter's
+  // DurableChatClientBeanPostProcessor so consumers can correlate an agent to its workflow.
+  private static final String WORKFLOW_NAME_PREFIX = "dapr.spring-ai.";
+  private static final String WORKFLOW_NAME_SUFFIX = ".workflow";
+  private static final String WORKFLOW_NAME_KEY = "workflow_name";
 
   private final String appId;
   private final String llmClient;
@@ -53,7 +59,9 @@ public final class AgentRecordFactory {
    * @return the agent record to register eagerly
    */
   public AgentMetadataSchema buildThin(String name, boolean durable) {
-    AgentMetadata agent = new AgentMetadata(appId, type(durable), null, null, null, null, FRAMEWORK);
+    Map<String, Object> extras = durable ? Map.of(WORKFLOW_NAME_KEY, workflowName(name)) : null;
+    AgentMetadata agent =
+        new AgentMetadata(appId, type(durable), null, null, null, null, FRAMEWORK, extras);
     LlmMetadata llm = new LlmMetadata(llmClient, llmProvider, "chat", defaultModel);
     return new AgentMetadataSchema(VERSION, name, Instant.now().toString(), agent, llm, null);
   }
@@ -68,8 +76,9 @@ public final class AgentRecordFactory {
    */
   public AgentMetadataSchema build(String name, ChatClientRequest request, boolean durable) {
     ChatOptions options = request.prompt().getOptions();
-    AgentMetadata agent =
-        new AgentMetadata(appId, type(durable), null, null, null, systemPrompt(request), FRAMEWORK);
+    Map<String, Object> extras = durable ? Map.of(WORKFLOW_NAME_KEY, workflowName(name)) : null;
+    AgentMetadata agent = new AgentMetadata(
+        appId, type(durable), null, null, null, systemPrompt(request), FRAMEWORK, extras);
     LlmMetadata llm = new LlmMetadata(llmClient, llmProvider, "chat", resolveModel(options));
     List<ToolMetadata> tools = tools(options);
     return new AgentMetadataSchema(
@@ -78,6 +87,12 @@ public final class AgentRecordFactory {
 
   private static String type(boolean durable) {
     return durable ? TYPE_DURABLE : TYPE_STANDARD;
+  }
+
+  // The per-agent workflow name (dapr.spring-ai.{name}.workflow), recorded for a durable agent so
+  // consumers can correlate the agent to its workflow.
+  private static String workflowName(String name) {
+    return WORKFLOW_NAME_PREFIX + name + WORKFLOW_NAME_SUFFIX;
   }
 
   private String resolveModel(ChatOptions options) {

@@ -4,6 +4,7 @@ import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.diagrid.springai.registry.model.AgentMetadata;
 import io.diagrid.springai.registry.model.AgentMetadataSchema;
 import java.util.HashMap;
 import java.util.List;
@@ -67,14 +68,20 @@ class AgentRecordFactoryTest {
     assertEquals("default-model", schema.llm().model());
     assertNull(schema.agent().systemPrompt(), "thin record has no system prompt until first call");
     assertNull(schema.tools(), "thin record has no tools until first call");
+    assertNull(schema.agent().metadata(), "a standard agent carries no workflow_name");
   }
 
   @Test
-  void typeIsDurableAgentWhenBackedByDapr() {
+  void durableAgentCarriesTypeAndWorkflowNameForCorrelation() {
     ToolCallingChatOptions options = ToolCallingChatOptions.builder().build();
-    assertEquals("DurableAgent",
-        factory.build("weatherAssistant", request(new SystemMessage("x"), options), true).agent().type());
-    assertEquals("DurableAgent", factory.buildThin("weatherAssistant", true).agent().type());
+    AgentMetadata built =
+        factory.build("weatherAssistant", request(new SystemMessage("x"), options), true).agent();
+    assertEquals("DurableAgent", built.type());
+    assertEquals("dapr.spring-ai.weatherAssistant.workflow", built.metadata().get("workflow_name"));
+
+    AgentMetadata thin = factory.buildThin("weatherAssistant", true).agent();
+    assertEquals("DurableAgent", thin.type());
+    assertEquals("dapr.spring-ai.weatherAssistant.workflow", thin.metadata().get("workflow_name"));
   }
 
   @Test
