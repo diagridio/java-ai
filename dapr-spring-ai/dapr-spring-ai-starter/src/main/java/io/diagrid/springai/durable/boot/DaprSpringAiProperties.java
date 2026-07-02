@@ -2,6 +2,7 @@ package io.diagrid.springai.durable.boot;
 
 import io.dapr.workflows.WorkflowTaskOptions;
 import io.dapr.workflows.WorkflowTaskRetryPolicy;
+import io.diagrid.springai.durable.client.FailedInstancePolicy;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -13,10 +14,16 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                              falling back to a content-hash durability key (default false)
  * @param completionTimeout     how long a call blocks waiting for its workflow to complete
  * @param retry                 retry policy applied to the LLM and tool activities
+ * @param failedInstancePolicy  what a reissue does when its id maps to a terminally-failed workflow:
+ *                              {@code FAIL} (default, surface the failure) or {@code RETRY} (recreate)
  */
 @ConfigurationProperties("dapr.spring-ai")
 public record DaprSpringAiProperties(
-    Boolean enabled, Boolean requireConversationId, Duration completionTimeout, Retry retry) {
+    Boolean enabled,
+    Boolean requireConversationId,
+    Duration completionTimeout,
+    Retry retry,
+    FailedInstancePolicy failedInstancePolicy) {
 
   public DaprSpringAiProperties {
     if (enabled == null) {
@@ -30,6 +37,9 @@ public record DaprSpringAiProperties(
     }
     if (retry == null) {
       retry = new Retry(null, null, null, null, null);
+    }
+    if (failedInstancePolicy == null) {
+      failedInstancePolicy = FailedInstancePolicy.FAIL;
     }
   }
 

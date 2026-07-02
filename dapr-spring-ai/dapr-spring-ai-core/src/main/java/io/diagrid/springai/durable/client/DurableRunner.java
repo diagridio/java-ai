@@ -19,15 +19,22 @@ import org.slf4j.LoggerFactory;
  *
  * <p>The deterministic id is the entire durability mechanism. Recovery uses <b>probe-then-act</b>
  * because the SDK exposes no {@code InstanceAlreadyExists} signal nor an id-reuse policy: probe with
- * {@link DaprWorkflowClient#getWorkflowState}, create only when absent, then
- * {@link DaprWorkflowClient#waitForWorkflowCompletion}. A reissued identical request computes the
- * same id and attaches to the in-flight or completed instance instead of starting a new one — no
- * re-execution of completed activities.
+ * {@link DaprWorkflowClient#getWorkflowState}, then act on the reported status —
+ * <ul>
+ *   <li><b>completed</b> → return the recorded output (reissue/dedup), no re-execution;</li>
+ *   <li><b>absent</b> → create it (the only path that schedules);</li>
+ *   <li><b>terminally failed</b> → per {@link FailedInstancePolicy}: surface the failure ({@code FAIL},
+ *       default) or recreate ({@code RETRY});</li>
+ *   <li><b>active</b> → attach by waiting, without scheduling.</li>
+ * </ul>
+ * then {@link DaprWorkflowClient#waitForWorkflowCompletion}. Scheduling only when the id is absent is
+ * what keeps a reissue from re-running an already-finished workflow.
  *
- * <p>The narrow probe-miss race (two identical requests both create the same id concurrently) is
- * handled defensively: a failed create is logged and we proceed to wait, since either the instance
- * now exists (the wait succeeds) or it does not (the wait times out). The exact backend behavior on
- * a duplicate create is verified empirically by the crash-recovery integration test.
+ * <p>The residual race — a concurrent identical request that created <em>and fully completed</em> in
+ * the probe→schedule gap — is effectively impossible for an LLM workload; a concurrent create that is
+ * still active is handled defensively (the "already exists" collision is treated as the attach path).
+ * The backend behavior on a duplicate create is verified empirically by the crash-recovery
+ * integration test.
  */
 public class DurableRunner {
 
@@ -36,12 +43,26 @@ public class DurableRunner {
   private final DaprWorkflowClient client;
   private final InstanceIdDerivation idDerivation;
   private final Duration completionTimeout;
+  private final FailedInstancePolicy failedInstancePolicy;
 
+  /** Uses {@link FailedInstancePolicy#FAIL} — a reissue onto a failed instance surfaces the failure. */
   public DurableRunner(
       DaprWorkflowClient client, InstanceIdDerivation idDerivation, Duration completionTimeout) {
+    this(client, idDerivation, completionTimeout, FailedInstancePolicy.FAIL);
+  }
+
+  /**
+   * @param failedInstancePolicy what to do when a reissue's id maps to a terminally-failed workflow
+   */
+  public DurableRunner(
+      DaprWorkflowClient client,
+      InstanceIdDerivation idDerivation,
+      Duration completionTimeout,
+      FailedInstancePolicy failedInstancePolicy) {
     this.client = client;
     this.idDerivation = idDerivation;
     this.completionTimeout = completionTimeout;
+    this.failedInstancePolicy = failedInstancePolicy;
   }
 
   /** The deterministic instance id for a request (the implicit durability handle). */
@@ -68,26 +89,35 @@ public class DurableRunner {
   public AgentResult run(AgentRequest request, String workflowName) throws TimeoutException {
     String instanceId = idDerivation.deriveInstanceId(request);
 
-    // Already completed? Return its result without re-running. This is the reissue/dedup path. It is
-    // safe despite getWorkflowState returning a non-null default state for unknown instances: an
-    // absent instance never reports COMPLETED, so this only short-circuits genuine completions.
-    // (The backend only rejects duplicate *active* ids; a completed id would otherwise re-run.)
+    // Probe, then act on what we found. getWorkflowState never returns null (an unknown instance
+    // comes back as a not-found state — see isAbsent), so branch on the reported status.
     WorkflowState existing = client.getWorkflowState(instanceId, true);
-    if (existing != null && existing.getRuntimeStatus() == WorkflowRuntimeStatus.COMPLETED) {
+    WorkflowRuntimeStatus status = existing == null ? null : existing.getRuntimeStatus();
+
+    // Reuse a completed run without re-executing — the reissue/dedup path.
+    if (status == WorkflowRuntimeStatus.COMPLETED) {
       LOG.info("Attaching to completed workflow instance {}", instanceId);
       return existing.readOutputAs(AgentResult.class);
     }
 
-    // Otherwise schedule, treating an "already exists" collision (an in-flight duplicate) as the
-    // attach path; any other error is real and propagates rather than masking as a timeout.
-    try {
-      client.scheduleNewWorkflow(workflowName, request, instanceId);
-      LOG.info("Scheduled new durable workflow instance {} ({})", instanceId, workflowName);
-    } catch (RuntimeException e) {
-      if (!isAlreadyExists(e)) {
-        throw e;
+    if (existing == null || isAbsent(existing)) {
+      // No instance under this id yet: create it. Scheduling *only* here (never against an existing
+      // instance) shrinks the duplicate-run race to a concurrent identical request that both created
+      // AND fully completed within the probe->schedule gap — effectively impossible for an LLM call.
+      schedule(workflowName, request, instanceId);
+    } else if (isTerminalFailure(existing)) {
+      // A prior run under this id failed / was terminated. The reissue behavior is configurable.
+      if (failedInstancePolicy == FailedInstancePolicy.RETRY) {
+        LOG.info("Instance {} previously {}; recreating (RETRY policy)", instanceId, status);
+        schedule(workflowName, request, instanceId);
+      } else {
+        LOG.info("Instance {} previously {}; surfacing the failure (FAIL policy)", instanceId, status);
+        return outputOrThrow(existing, instanceId);
       }
-      LOG.info("Instance {} already running; attaching instead of creating", instanceId);
+    } else {
+      // Present and still active (RUNNING / PENDING / SUSPENDED / CONTINUED_AS_NEW): attach, do NOT
+      // schedule. If it completes before our wait, the wait just returns it — nothing re-runs.
+      LOG.info("Attaching to in-flight workflow instance {} ({})", instanceId, status);
     }
 
     WorkflowState completed = client.waitForWorkflowCompletion(instanceId, completionTimeout, true);
@@ -114,6 +144,40 @@ public class DurableRunner {
             : failure.getErrorType() + ": " + failure.getErrorMessage();
     throw new IllegalStateException(
         "Durable workflow " + instanceId + " ended in status " + status + " (" + detail + ")");
+  }
+
+  // Schedule a new run, treating an "already exists" collision (a concurrent identical request that
+  // created it first) as the attach path; any other error is real and propagates.
+  private void schedule(String workflowName, AgentRequest request, String instanceId) {
+    try {
+      client.scheduleNewWorkflow(workflowName, request, instanceId);
+      LOG.info("Scheduled durable workflow instance {} ({})", instanceId, workflowName);
+    } catch (RuntimeException e) {
+      if (!isAlreadyExists(e)) {
+        throw e;
+      }
+      LOG.info("Instance {} already exists; attaching instead of creating", instanceId);
+    }
+  }
+
+  /**
+   * Whether the probed state means "no instance under this id yet". {@code getWorkflowState} never
+   * returns null; an unknown instance reports the proto-default status {@code RUNNING} while
+   * {@code isRunning()} is false ({@code isRunning} implies {@code isInstanceFound}). That pair
+   * uniquely identifies a not-found instance: a genuinely running one reports
+   * {@code isRunning()==true}, and every other present state reports a status other than
+   * {@code RUNNING}. Verified against dapr-sdk-workflows 1.19 and pinned by {@code CrashRecoveryIT}.
+   */
+  static boolean isAbsent(WorkflowState state) {
+    return state.getRuntimeStatus() == WorkflowRuntimeStatus.RUNNING && !state.isRunning();
+  }
+
+  // A prior run under this id ended in a terminal failure (COMPLETED is handled separately, as dedup).
+  static boolean isTerminalFailure(WorkflowState state) {
+    WorkflowRuntimeStatus status = state.getRuntimeStatus();
+    return status == WorkflowRuntimeStatus.FAILED
+        || status == WorkflowRuntimeStatus.TERMINATED
+        || status == WorkflowRuntimeStatus.CANCELED;
   }
 
   /** The backend signals a duplicate active instance with an "already exists" error message. */

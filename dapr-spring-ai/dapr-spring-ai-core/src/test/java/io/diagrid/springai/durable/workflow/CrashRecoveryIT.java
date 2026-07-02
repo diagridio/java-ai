@@ -1,6 +1,7 @@
 package io.diagrid.springai.durable.workflow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
@@ -15,6 +16,8 @@ import io.dapr.testcontainers.Component;
 import io.dapr.testcontainers.DaprContainer;
 import io.dapr.testcontainers.DaprLogLevel;
 import io.dapr.workflows.client.DaprWorkflowClient;
+import io.dapr.workflows.client.WorkflowRuntimeStatus;
+import io.dapr.workflows.client.WorkflowState;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -156,6 +159,18 @@ class CrashRecoveryIT {
       worker2.destroyForcibly();
       worker2.waitFor();
     }
+  }
+
+  @Test
+  void notFoundInstanceReportsRunningButNotRunning() {
+    // Pins the SDK behavior DurableRunner.isAbsent() relies on: an unknown instance comes back
+    // non-null with the proto-default status RUNNING while isRunning()/isCompleted() are false. A
+    // future SDK bump that changed this (e.g. an UNSPECIFIED default) would fail here.
+    WorkflowState state = workflowClient.getWorkflowState("dsa-not-a-real-instance-xyz", true);
+    assertNotNull(state, "getWorkflowState never returns null");
+    assertEquals(WorkflowRuntimeStatus.RUNNING, state.getRuntimeStatus());
+    assertFalse(state.isRunning(), "a not-found instance must not report isRunning()");
+    assertFalse(state.isCompleted(), "a not-found instance must not report isCompleted()");
   }
 
   @Test

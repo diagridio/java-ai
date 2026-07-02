@@ -109,6 +109,23 @@ return a stale answer — so the key is content-based.)
 > re-runs completed LLM calls or tool side effects. The cost is the caveat above;
 > random ids avoid it but give no reattach.
 
+### Configuration
+
+Core durability properties (the `retry`, `registry`, and `memory` sub-namespaces
+have their own tables in the sections below):
+
+| Property | Default | Meaning |
+|----------|---------|---------|
+| `dapr.spring-ai.enabled` | `true` | make `ChatClient` calls durable at all |
+| `dapr.spring-ai.require-conversation-id` | `false` | strict mode: fail a call with no conversation id instead of falling back to the content-hash key |
+| `dapr.spring-ai.completion-timeout` | `5m` | how long a call blocks on its workflow; if it elapses the workflow keeps running and a reissue reattaches, so no work is lost |
+| `dapr.spring-ai.failed-instance-policy` | `fail` | reissue onto a **failed/terminated** run: `fail` surfaces the recorded failure (a deterministically-failing request isn't re-run every reissue); `retry` recreates it under the same id |
+
+A reissue onto a **completed** run returns the recorded result (no re-execution),
+and the runner **only schedules when no instance exists yet** — a reissue that
+lands on an in-flight run just attaches and waits (never re-schedules), which is
+what keeps duplicate reissues from double-running an agent.
+
 ## Workflow names: per agent, one orchestrator
 
 A single generic orchestrator runs every call, but it is registered under

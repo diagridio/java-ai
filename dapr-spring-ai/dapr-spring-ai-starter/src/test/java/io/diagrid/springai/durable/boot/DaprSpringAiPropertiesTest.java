@@ -7,14 +7,22 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 import io.dapr.workflows.WorkflowTaskOptions;
 import io.dapr.workflows.WorkflowTaskRetryPolicy;
 import io.diagrid.springai.durable.boot.DaprSpringAiProperties.Retry;
+import io.diagrid.springai.durable.client.FailedInstancePolicy;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
 class DaprSpringAiPropertiesTest {
 
   @Test
+  void failedInstancePolicyDefaultsToFail() {
+    assertEquals(
+        FailedInstancePolicy.FAIL,
+        new DaprSpringAiProperties(null, null, null, null, null).failedInstancePolicy());
+  }
+
+  @Test
   void retryDefaultsAreAppliedWhenUnset() {
-    Retry retry = new DaprSpringAiProperties(null, null, null, null).retry();
+    Retry retry = new DaprSpringAiProperties(null, null, null, null, null).retry();
     WorkflowTaskOptions options = retry.toWorkflowTaskOptions();
     assertNotNull(options, "retries are on by default");
     WorkflowTaskRetryPolicy policy = options.getRetryPolicy();

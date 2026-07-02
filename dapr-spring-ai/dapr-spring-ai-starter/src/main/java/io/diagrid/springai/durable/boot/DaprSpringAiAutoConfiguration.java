@@ -60,7 +60,8 @@ public class DaprSpringAiAutoConfiguration {
   @ConditionalOnMissingBean
   public DurableRunner durableRunner(
       DaprWorkflowClient client, InstanceIdDerivation idDerivation, DaprSpringAiProperties properties) {
-    return new DurableRunner(client, idDerivation, properties.completionTimeout());
+    return new DurableRunner(
+        client, idDerivation, properties.completionTimeout(), properties.failedInstancePolicy());
   }
 
   @Bean
