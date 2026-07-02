@@ -4,6 +4,7 @@ import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.diagrid.springai.durable.workflow.LlmInvokeActivity;
 import io.diagrid.springai.durable.workflow.ToolInvokeActivity;
 import io.diagrid.springai.durable.workflow.ToolRegistry;
+import io.diagrid.springai.durable.workflow.ToolSpec;
 import io.dapr.workflows.WorkflowActivity;
 import io.dapr.workflows.WorkflowActivityContext;
 import io.dapr.workflows.runtime.WorkflowRuntime;
@@ -43,7 +44,10 @@ public final class WorkerMain {
         };
 
     ToolRegistry registry =
-        new ToolRegistry().register("getSecretWord", arguments -> getSecretWord(coord));
+        new ToolRegistry()
+            .register(
+                new ToolSpec("getSecretWord", "Returns the secret word.", "{}"),
+                arguments -> getSecretWord(coord));
     ToolInvokeActivity toolActivity = new ToolInvokeActivity(registry);
 
     WorkflowRuntimeBuilder builder =

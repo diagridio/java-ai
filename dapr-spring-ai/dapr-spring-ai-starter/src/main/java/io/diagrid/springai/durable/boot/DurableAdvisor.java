@@ -52,10 +52,12 @@ import org.slf4j.LoggerFactory;
  * <p><b>Tools.</b> The advertised tool surface is the union of (a) globally discovered {@code @Tool}
  * beans and (b) the request-scoped tools attached to this specific ChatClient via
  * {@code .defaultTools(...)} / {@code .tools(...)} — read from the prompt's
- * {@link ToolCallingChatOptions#getToolCallbacks()}. Request tools win on name collisions, and are
- * registered into the {@link io.diagrid.springai.durable.workflow.ToolRegistry} so the workflow's
- * tool activity can execute them. This preserves per-agent scoping: an agent is only offered its own
- * tools plus any global ones.
+ * {@link ToolCallingChatOptions#getToolCallbacks()}. Request tools win on name collisions in this
+ * <b>advertised</b> surface, which is per-agent: an agent is only <i>offered</i> its own tools plus
+ * any global ones. <b>Execution</b> is not per-agent: the callbacks are registered into the
+ * {@link io.diagrid.springai.durable.workflow.ToolRegistry}, which the workflow's tool activity
+ * resolves by <b>bare name</b>, process-wide and last-write-wins. Keep tool names app-unique; a
+ * genuine collision (two different definitions under one name) is logged by the registry.
  *
  * <p><b>Durability caveat.</b> Request-scoped tools that are not Spring beans (e.g.
  * {@code .defaultTools(new WeatherTools())}) are registered in memory at call time; they work on the
@@ -174,10 +176,12 @@ public final class DurableAdvisor implements CallAdvisor {
       if (callbacks != null) {
         for (ToolCallback callback : callbacks) {
           ToolDefinition definition = callback.getToolDefinition();
-          tools.registry().register(definition.name(), callback::call);
-          byName.put(
-              definition.name(),
-              new ToolSpec(definition.name(), definition.description(), definition.inputSchema()));
+          ToolSpec spec =
+              new ToolSpec(definition.name(), definition.description(), definition.inputSchema());
+          // Register the spec so the registry can flag a collision if a different tool already holds
+          // this name (execution stays process-wide, last-write-wins — see ToolRegistry).
+          tools.registry().register(spec, callback::call);
+          byName.put(definition.name(), spec);
           LOG.debug("Advertising request-scoped tool '{}' to the durable workflow", definition.name());
         }
       }

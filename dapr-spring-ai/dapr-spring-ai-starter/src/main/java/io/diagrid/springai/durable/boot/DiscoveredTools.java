@@ -62,14 +62,14 @@ public final class DiscoveredTools {
         continue; // scoped/unresolvable at runtime — skip
       }
       for (ToolCallback callback : ToolCallbacks.from(bean)) {
-        String name = callback.getToolDefinition().name();
-        registry.register(name, callback::call);
-        specs.add(
+        ToolSpec spec =
             new ToolSpec(
-                name,
+                callback.getToolDefinition().name(),
                 callback.getToolDefinition().description(),
-                callback.getToolDefinition().inputSchema()));
-        LOG.info("Registered durable tool '{}' from bean '{}'", name, beanName);
+                callback.getToolDefinition().inputSchema());
+        registry.register(spec, callback::call);
+        specs.add(spec);
+        LOG.info("Registered durable tool '{}' from bean '{}'", spec.name(), beanName);
       }
     }
   }

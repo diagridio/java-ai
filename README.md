@@ -156,10 +156,11 @@ re-executed on replay. How a tool is registered determines whether an
   resumes and runs the tool normally after a restart. **Use these for tools
   whose in-flight calls must be crash-recoverable.**
 - **Request-scoped tools** attached per-`ChatClient` via
-  `.defaultTools(new MyTools())` / `.tools(...)` — these are advertised and
-  executed correctly on the live path (and scoped to that agent only), but the
-  callback is registered in memory at call time, not at startup. If the JVM
-  crashes *after* the model requests such a tool but *before* that tool
+  `.defaultTools(new MyTools())` / `.tools(...)` — advertised per-agent and
+  executed correctly on the live path, but the callback is registered in memory at
+  call time, not at startup. (Per-agent is the *advertised* surface only —
+  execution resolves by bare name in a process-wide registry; see below.) If the
+  JVM crashes *after* the model requests such a tool but *before* that tool
   activity completes, the resumed workflow cannot find the callback and that
   instance fails; the registry repopulates on the next call to the agent, so
   new calls keep working. For full mid-workflow recovery, back the tool with a
@@ -170,13 +171,22 @@ workflow state, not the tool's implementation. Note that retries (below) don't
 rescue this case: a request-scoped tool whose callback is gone after a cold
 restart will exhaust its attempts and then fail the workflow.
 
-**Tool names share one namespace.** The execution registry maps a tool *name* to
-a single implementation, last registration wins. If two agents register
-different tools under the same name, the later one shadows the earlier for
-*everyone*, and a workflow can run the wrong implementation. Keep tool names
-unique across the application (e.g. prefix them per agent). (This affects only
-execution; for what's *advertised* to the model, a request-scoped tool correctly
-overrides a same-named global one for that call.)
+**Tool names share one namespace.** Execution resolves a tool by *bare name* in a
+process-wide registry, last-write-wins — so tools must be **stateless** and
+**app-uniquely named**. That last-write-wins re-registration is a feature, not a
+bug: a request-scoped tool works across replicas precisely because every replica
+that serves the agent re-registers the same stateless callback, so wherever Dapr
+dispatches the activity a correct copy is present. The flip side is that if two
+*different* tools are registered under one name, the later silently shadows the
+earlier for everyone — so the registry now logs a **one-time WARN per name** when a
+name is registered with a different definition (description/schema), pointing at
+the fix (unique names, e.g. a per-agent prefix). Behavior is unchanged
+(last-write-wins); it's just no longer silent. What can't be detected — and so
+stays unsupported — is a tool that captures **per-request state** in its closure:
+two such registrations look identical to a safe stateless one, and under
+concurrency a workflow may run the wrong closure. (For what's *advertised* to the
+model, a request-scoped tool correctly overrides a same-named global one for that
+call.)
 
 ## Retries
 
