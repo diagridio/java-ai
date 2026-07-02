@@ -311,6 +311,19 @@ Notes:
 - Only conversational turns (user/assistant/system) are persisted, as
   `{type, text}`; tool messages are not.
 - A user-supplied `ChatMemoryRepository` bean takes precedence.
+- **One writer per conversation id.** `MessageWindowChatMemory` does
+  read-modify-write, so two concurrent turns on the same conversation id would
+  otherwise silently drop one. The save uses optimistic concurrency (etag): a
+  conflicting write is **rejected** with a `ConcurrentConversationModificationException`
+  rather than merged — merging two windows generated without seeing each other
+  would fabricate a false history, so a conflict is treated as a usage error
+  (double-submit, missing sticky routing, two agents sharing an id). This is
+  deliberately fail-loud, unlike the registry's best-effort log-and-swallow —
+  memory is user data. Failing is cheap: the durable layer means a reissued turn
+  reattaches to the completed workflow (no LLM re-run) and re-saves against the
+  now-current etag. The etag guards every turn after the first; a first write has
+  no etag yet, so two *simultaneous first turns* on a brand-new conversation id can
+  still race (store-dependent).
 
 ## Roadmap
 
