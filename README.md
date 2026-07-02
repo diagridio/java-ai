@@ -120,6 +120,7 @@ have their own tables in the sections below):
 | `dapr.spring-ai.require-conversation-id` | `false` | strict mode: fail a call with no conversation id instead of falling back to the content-hash key |
 | `dapr.spring-ai.completion-timeout` | `5m` | how long a call blocks on its workflow; if it elapses the workflow keeps running and a reissue reattaches, so no work is lost |
 | `dapr.spring-ai.failed-instance-policy` | `fail` | reissue onto a **failed/terminated** run: `fail` surfaces the recorded failure (a deterministically-failing request isn't re-run every reissue); `retry` recreates it under the same id |
+| `dapr.spring-ai.max-iterations` | `20` | hard cap on LLM turns per call; the workflow fails if the model still requests tools past it (guards against a runaway tool loop — stock Spring AI's loop is unbounded) |
 
 A reissue onto a **completed** run returns the recorded result (no re-execution),
 and the runner **only schedules when no instance exists yet** — a reissue that

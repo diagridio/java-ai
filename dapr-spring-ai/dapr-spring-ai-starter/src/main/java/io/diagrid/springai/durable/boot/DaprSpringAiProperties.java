@@ -3,6 +3,7 @@ package io.diagrid.springai.durable.boot;
 import io.dapr.workflows.WorkflowTaskOptions;
 import io.dapr.workflows.WorkflowTaskRetryPolicy;
 import io.diagrid.springai.durable.client.FailedInstancePolicy;
+import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
 
@@ -16,6 +17,8 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param retry                 retry policy applied to the LLM and tool activities
  * @param failedInstancePolicy  what a reissue does when its id maps to a terminally-failed workflow:
  *                              {@code FAIL} (default, surface the failure) or {@code RETRY} (recreate)
+ * @param maxIterations         hard cap on LLM turns per call; the workflow fails if the model still
+ *                              requests tools past it (default {@value AgentWorkflow#DEFAULT_MAX_ITERATIONS})
  */
 @ConfigurationProperties("dapr.spring-ai")
 public record DaprSpringAiProperties(
@@ -23,7 +26,8 @@ public record DaprSpringAiProperties(
     Boolean requireConversationId,
     Duration completionTimeout,
     Retry retry,
-    FailedInstancePolicy failedInstancePolicy) {
+    FailedInstancePolicy failedInstancePolicy,
+    Integer maxIterations) {
 
   public DaprSpringAiProperties {
     if (enabled == null) {
@@ -40,6 +44,9 @@ public record DaprSpringAiProperties(
     }
     if (failedInstancePolicy == null) {
       failedInstancePolicy = FailedInstancePolicy.FAIL;
+    }
+    if (maxIterations == null) {
+      maxIterations = AgentWorkflow.DEFAULT_MAX_ITERATIONS;
     }
   }
 

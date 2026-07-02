@@ -1,7 +1,10 @@
 package io.diagrid.springai.durable.workflow;
 
+import static org.junit.jupiter.api.Assertions.assertDoesNotThrow;
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import java.util.List;
 import org.junit.jupiter.api.Test;
@@ -56,5 +59,17 @@ class AgentWorkflowTest {
     assertNull(result.aggregatedUsage(), "no usage reported anywhere → null aggregate");
     assertEquals(1, result.turns());
     assertEquals("hi", result.finalText());
+  }
+
+  @Test
+  void iterationCapFailsOnceTheBudgetIsSpent() {
+    // Below the cap the loop may continue; at (or beyond) the cap, a model still requesting tools
+    // fails the workflow rather than looping unbounded.
+    assertDoesNotThrow(() -> AgentWorkflow.requireWithinIterationCap(4, 5));
+    IllegalStateException e =
+        assertThrows(
+            IllegalStateException.class, () -> AgentWorkflow.requireWithinIterationCap(5, 5));
+    assertTrue(e.getMessage().contains("5"), e.getMessage());
+    assertTrue(e.getMessage().contains("max-iterations"), e.getMessage());
   }
 }

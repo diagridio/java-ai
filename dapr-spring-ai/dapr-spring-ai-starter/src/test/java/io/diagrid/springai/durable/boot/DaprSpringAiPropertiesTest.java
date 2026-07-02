@@ -17,12 +17,19 @@ class DaprSpringAiPropertiesTest {
   void failedInstancePolicyDefaultsToFail() {
     assertEquals(
         FailedInstancePolicy.FAIL,
-        new DaprSpringAiProperties(null, null, null, null, null).failedInstancePolicy());
+        new DaprSpringAiProperties(null, null, null, null, null, null).failedInstancePolicy());
+  }
+
+  @Test
+  void maxIterationsDefaultsWhenUnset() {
+    assertEquals(
+        io.diagrid.springai.durable.workflow.AgentWorkflow.DEFAULT_MAX_ITERATIONS,
+        new DaprSpringAiProperties(null, null, null, null, null, null).maxIterations());
   }
 
   @Test
   void retryDefaultsAreAppliedWhenUnset() {
-    Retry retry = new DaprSpringAiProperties(null, null, null, null, null).retry();
+    Retry retry = new DaprSpringAiProperties(null, null, null, null, null, null).retry();
     WorkflowTaskOptions options = retry.toWorkflowTaskOptions();
     assertNotNull(options, "retries are on by default");
     WorkflowTaskRetryPolicy policy = options.getRetryPolicy();

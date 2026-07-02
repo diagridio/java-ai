@@ -91,12 +91,14 @@ public class DaprSpringAiAutoConfiguration {
       DaprSpringAiProperties properties,
       ApplicationContext context)
       throws Exception {
-    // Retry options are fixed here at startup and shared by every workflow instance (read-only), so
-    // they stay constant across replays.
+    // Retry options and the max-iterations cap are fixed here at startup and shared by every workflow
+    // instance (read-only), so they stay constant across replays.
     WorkflowTaskOptions activityOptions = properties.retry().toWorkflowTaskOptions();
+    int maxIterations = properties.maxIterations();
     WorkflowRuntimeBuilder builder =
         new WorkflowRuntimeBuilder()
-            .registerWorkflow(AgentWorkflow.NAME, new AgentWorkflow(activityOptions), null, null)
+            .registerWorkflow(
+                AgentWorkflow.NAME, new AgentWorkflow(activityOptions, maxIterations), null, null)
             .registerActivity(
                 AgentWorkflow.LLM_ACTIVITY, new LlmInvokeActivity(chatModel, optionsFactory))
             .registerActivity(AgentWorkflow.TOOL_ACTIVITY, new ToolInvokeActivity(tools.registry()));
@@ -106,7 +108,8 @@ public class DaprSpringAiAutoConfiguration {
     // definitions (no instantiation).
     for (String beanName : context.getBeanNamesForType(ChatClient.class, false, false)) {
       String workflowName = DurableChatClientBeanPostProcessor.workflowName(beanName);
-      builder.registerWorkflow(workflowName, new AgentWorkflow(activityOptions), null, null);
+      builder.registerWorkflow(
+          workflowName, new AgentWorkflow(activityOptions, maxIterations), null, null);
     }
     WorkflowRuntime runtime = builder.build();
     runtime.start(false);

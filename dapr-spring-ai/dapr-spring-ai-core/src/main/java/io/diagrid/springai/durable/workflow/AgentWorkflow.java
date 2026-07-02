@@ -12,7 +12,9 @@ import java.util.List;
 
 /**
  * The single, generic agent workflow: runs the chat-and-tools loop for one {@code ChatClient} call
- * until the model returns a turn with no tool calls, then completes with the final assistant text.
+ * until the model returns a turn with no tool calls, then completes with the final assistant text. The
+ * loop is bounded by a configurable max-iterations cap ({@link #DEFAULT_MAX_ITERATIONS} by default);
+ * if the model keeps requesting tools past it, the workflow fails rather than looping unbounded.
  *
  * <p>Deterministic control flow only. The conversation is reconstructed on every replay purely from
  * the seed (workflow input) plus the awaited activity results — no separate durable state. On replay
@@ -50,13 +52,19 @@ public final class AgentWorkflow implements Workflow {
   public static final String LLM_ACTIVITY = "dsa.llm.invoke";
   public static final String TOOL_ACTIVITY = "dsa.tool.invoke";
 
+  /** Default cap on LLM turns per call when none is configured. */
+  public static final int DEFAULT_MAX_ITERATIONS = 20;
+
   // Retry/backoff applied to every activity call, or null for no retry (single attempt). Final, so
   // it is constant across replays — it never changes the orchestration's deterministic shape.
   private final WorkflowTaskOptions activityOptions;
 
-  /** Creates a workflow whose activities are not retried (a single attempt each). */
+  // Hard cap on LLM turns before the loop gives up. Final → constant across replays.
+  private final int maxIterations;
+
+  /** Creates a workflow with no activity retries and the {@link #DEFAULT_MAX_ITERATIONS} cap. */
   public AgentWorkflow() {
-    this(null);
+    this(null, DEFAULT_MAX_ITERATIONS);
   }
 
   /**
@@ -64,7 +72,17 @@ public final class AgentWorkflow implements Workflow {
    *                        {@code null} to disable retries
    */
   public AgentWorkflow(WorkflowTaskOptions activityOptions) {
+    this(activityOptions, DEFAULT_MAX_ITERATIONS);
+  }
+
+  /**
+   * @param activityOptions options applied to every activity call, or {@code null} to disable retries
+   * @param maxIterations   hard cap on LLM turns; the loop fails if the model still requests tools
+   *                        after this many turns (guards against an unbounded tool loop)
+   */
+  public AgentWorkflow(WorkflowTaskOptions activityOptions, int maxIterations) {
     this.activityOptions = activityOptions;
+    this.maxIterations = maxIterations;
   }
 
   @Override
@@ -89,6 +107,10 @@ public final class AgentWorkflow implements Workflow {
           return;
         }
 
+        // The model wants another tool round. Guard against an unbounded loop (runaway cost, history
+        // growth, O(n^2) replay): fail once we've spent the configured budget of LLM turns.
+        requireWithinIterationCap(turns.size(), maxIterations);
+
         // Fan-out/fan-in: schedule every tool call of this turn, then await them together, so the
         // tools of one turn run concurrently instead of serially. Task creation order is deterministic
         // (the model's tool-call order) and ctx.allOf preserves that order in its result list, so the
@@ -105,6 +127,17 @@ public final class AgentWorkflow implements Workflow {
         conversation.add(ToolResult.toMessageRecord(batch));
       }
     };
+  }
+
+  // Fails the workflow if the model still wants tools after the configured budget of LLM turns.
+  // Deterministic: a pure function of the awaited-turn count and the constant cap, so replay-safe.
+  static void requireWithinIterationCap(int llmTurnsSoFar, int maxIterations) {
+    if (llmTurnsSoFar >= maxIterations) {
+      throw new IllegalStateException(
+          "Agent exceeded the maximum of " + maxIterations + " LLM iterations without completing; the "
+              + "model kept requesting tools. Raise dapr.spring-ai.max-iterations if this is a "
+              + "legitimate long tool chain, or investigate a misbehaving model/tool.");
+    }
   }
 
   /**
