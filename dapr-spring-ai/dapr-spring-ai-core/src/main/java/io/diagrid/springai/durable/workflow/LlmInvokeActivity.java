@@ -6,6 +6,8 @@ import io.diagrid.springai.durable.conversation.ToolCallRecord;
 import java.util.List;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.ChatOptions;
@@ -58,6 +60,23 @@ public final class LlmInvokeActivity implements WorkflowActivity {
             .toList();
 
     String finishReason = response.getResult().getMetadata().getFinishReason();
-    return new LlmResult(assistant.getText(), toolCalls, finishReason);
+
+    // Capture response metadata (usage/model/id) so the workflow can aggregate it into AgentResult.
+    ChatResponseMetadata metadata = response.getMetadata();
+    Usage usage = metadata == null ? null : metadata.getUsage();
+    Integer promptTokens = usage == null ? null : usage.getPromptTokens();
+    Integer completionTokens = usage == null ? null : usage.getCompletionTokens();
+    Integer totalTokens = usage == null ? null : usage.getTotalTokens();
+    String model = metadata == null ? null : blankToNull(metadata.getModel());
+    String responseId = metadata == null ? null : blankToNull(metadata.getId());
+
+    return new LlmResult(
+        assistant.getText(), toolCalls, finishReason,
+        promptTokens, completionTokens, totalTokens, model, responseId);
+  }
+
+  // ChatResponseMetadata returns "" (not null) for an absent model/id; normalize to null.
+  private static String blankToNull(String value) {
+    return value == null || value.isBlank() ? null : value;
   }
 }

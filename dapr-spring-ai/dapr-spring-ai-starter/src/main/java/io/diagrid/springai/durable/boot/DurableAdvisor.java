@@ -3,8 +3,10 @@ package io.diagrid.springai.durable.boot;
 import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
 import io.diagrid.springai.durable.workflow.AgentRequest;
+import io.diagrid.springai.durable.workflow.AgentResult;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.diagrid.springai.durable.workflow.ChatOptionsSpec;
+import io.diagrid.springai.durable.workflow.TokenUsage;
 import io.diagrid.springai.durable.workflow.ToolSpec;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -17,6 +19,9 @@ import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
+import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
+import org.springframework.ai.chat.metadata.ChatResponseMetadata;
+import org.springframework.ai.chat.metadata.DefaultUsage;
 import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
@@ -109,16 +114,42 @@ public final class DurableAdvisor implements CallAdvisor {
         new AgentRequest(
             codec.toRecords(request.prompt().getInstructions()), toolSpecs, options, conversationId);
 
-    String finalText;
+    AgentResult result;
     try {
-      finalText = runner.run(agentRequest, workflowName);
+      result = runner.run(agentRequest, workflowName);
     } catch (Exception e) {
       throw new IllegalStateException("Durable ChatClient call failed", e);
     }
 
-    ChatResponse chatResponse =
-        new ChatResponse(List.of(new Generation(new AssistantMessage(finalText))));
-    return new ChatClientResponse(chatResponse, new HashMap<>(request.context()));
+    return new ChatClientResponse(toChatResponse(result), new HashMap<>(request.context()));
+  }
+
+  /**
+   * Rebuilds a Spring AI {@link ChatResponse} from the workflow's {@link AgentResult} so upstream
+   * advisors and user code see real response metadata: the finish reason on the generation, and the
+   * aggregated usage + model + id on the response metadata.
+   */
+  private static ChatResponse toChatResponse(AgentResult result) {
+    ChatGenerationMetadata generationMetadata =
+        result.finishReason() == null
+            ? ChatGenerationMetadata.NULL
+            : ChatGenerationMetadata.builder().finishReason(result.finishReason()).build();
+    Generation generation =
+        new Generation(new AssistantMessage(result.finalText()), generationMetadata);
+
+    ChatResponseMetadata.Builder metadata = ChatResponseMetadata.builder();
+    if (result.model() != null) {
+      metadata.model(result.model());
+    }
+    if (result.responseId() != null) {
+      metadata.id(result.responseId());
+    }
+    TokenUsage usage = result.aggregatedUsage();
+    if (usage != null) {
+      metadata.usage(
+          new DefaultUsage(usage.promptTokens(), usage.completionTokens(), usage.totalTokens()));
+    }
+    return new ChatResponse(List.of(generation), metadata.build());
   }
 
   /**

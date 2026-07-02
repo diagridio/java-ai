@@ -7,6 +7,7 @@ import static org.junit.jupiter.api.Assertions.assertTrue;
 import io.dapr.workflows.client.WorkflowFailureDetails;
 import io.dapr.workflows.client.WorkflowRuntimeStatus;
 import io.dapr.workflows.client.WorkflowState;
+import io.diagrid.springai.durable.workflow.AgentResult;
 import java.time.Instant;
 import org.junit.jupiter.api.Test;
 
@@ -19,15 +20,16 @@ class DurableRunnerTest {
 
   @Test
   void completedReturnsOutput() {
-    WorkflowState state = new FakeState(WorkflowRuntimeStatus.COMPLETED, "FINAL", null);
-    assertEquals("FINAL", DurableRunner.outputOrThrow(state, "dsa-c-x-abcd1234"));
+    AgentResult output = new AgentResult("FINAL", "stop", null, "gpt-4o-mini", null, 1);
+    WorkflowState state = new FakeState(WorkflowRuntimeStatus.COMPLETED, output, null);
+    assertEquals("FINAL", DurableRunner.outputOrThrow(state, "dsa-c-x-abcd1234").finalText());
   }
 
   @Test
   void failedThrowsWithFailureDetails() {
     WorkflowFailureDetails failure =
         new FakeFailure("java.lang.IllegalStateException", "provider returned 500");
-    WorkflowState state = new FakeState(WorkflowRuntimeStatus.FAILED, "garbage", failure);
+    WorkflowState state = new FakeState(WorkflowRuntimeStatus.FAILED, null, failure);
 
     IllegalStateException e =
         assertThrows(
@@ -49,13 +51,13 @@ class DurableRunnerTest {
   }
 
   /** Minimal {@link WorkflowState}: only the fields {@code outputOrThrow} reads carry meaning. */
-  private record FakeState(WorkflowRuntimeStatus status, String output, WorkflowFailureDetails failure)
+  private record FakeState(WorkflowRuntimeStatus status, AgentResult output, WorkflowFailureDetails failure)
       implements WorkflowState {
     @Override public WorkflowRuntimeStatus getRuntimeStatus() { return status; }
     @Override public WorkflowFailureDetails getFailureDetails() { return failure; }
     @SuppressWarnings("unchecked")
     @Override public <T> T readOutputAs(Class<T> type) { return (T) output; }
-    @Override public String getSerializedOutput() { return output; }
+    @Override public String getSerializedOutput() { return null; }
     @Override public boolean isCompleted() { return status == WorkflowRuntimeStatus.COMPLETED; }
     @Override public boolean isRunning() { return status == WorkflowRuntimeStatus.RUNNING; }
     @Override public String getName() { return "test"; }

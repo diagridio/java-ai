@@ -75,15 +75,17 @@ public final class AgentWorkflow implements Workflow {
       // Seed with the input messages; each turn appends its records (decode-from-history).
       List<MessageRecord> conversation = new ArrayList<>(request.messages());
       ChatOptionsSpec options = request.options();
+      List<LlmResult> turns = new ArrayList<>();
 
       while (true) {
         LlmActivityInput llmInput =
             new LlmActivityInput(List.copyOf(conversation), request.toolSpecs(), options);
         LlmResult llm = runActivity(ctx, LLM_ACTIVITY, llmInput, LlmResult.class);
         conversation.add(llm.toMessageRecord());
+        turns.add(llm);
 
         if (!llm.hasToolCalls()) {
-          ctx.complete(llm.text());
+          ctx.complete(aggregate(turns));
           return;
         }
 
@@ -103,6 +105,41 @@ public final class AgentWorkflow implements Workflow {
         conversation.add(ToolResult.toMessageRecord(batch));
       }
     };
+  }
+
+  /**
+   * Aggregates the awaited LLM turns into the workflow output: sums usage null-safely (turns with no
+   * usage are skipped; if none report any, the aggregate is {@code null}), takes the finish reason and
+   * model from the final turn, and counts the turns. A pure function of the activity outputs, so it is
+   * deterministic across replays.
+   */
+  static AgentResult aggregate(List<LlmResult> turns) {
+    Integer promptTokens = null;
+    Integer completionTokens = null;
+    Integer totalTokens = null;
+    for (LlmResult turn : turns) {
+      promptTokens = sum(promptTokens, turn.promptTokens());
+      completionTokens = sum(completionTokens, turn.completionTokens());
+      totalTokens = sum(totalTokens, turn.totalTokens());
+    }
+    TokenUsage usage =
+        promptTokens == null && completionTokens == null && totalTokens == null
+            ? null
+            : new TokenUsage(promptTokens, completionTokens, totalTokens);
+    LlmResult last = turns.get(turns.size() - 1);
+    return new AgentResult(
+        last.text(), last.finishReason(), usage, last.model(), last.responseId(), turns.size());
+  }
+
+  // Null-safe addition treating null as "absent": null + null = null; otherwise the present value(s).
+  private static Integer sum(Integer a, Integer b) {
+    if (a == null) {
+      return b;
+    }
+    if (b == null) {
+      return a;
+    }
+    return a + b;
   }
 
   // Schedule an activity as a Task with the configured retry options when present, plain otherwise.

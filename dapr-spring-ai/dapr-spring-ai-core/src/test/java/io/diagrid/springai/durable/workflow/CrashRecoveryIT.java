@@ -96,8 +96,9 @@ class CrashRecoveryIT {
 
     Process worker = startWorker(testDir, "baseline");
     try {
-      String result = runner.run(request("baseline: what is the secret word?"));
-      assertTrue(result.contains("BANANA"), "expected secret word in result, got: " + result);
+      AgentResult result = runner.run(request("baseline: what is the secret word?"));
+      assertTrue(
+          result.finalText().contains("BANANA"), "expected secret word in result, got: " + result);
       assertEquals(1, coord.count("toolSideEffect"), "tool side effect should run exactly once");
       assertEquals(1, coord.count("toolAttempt"), "tool attempted once with no crash");
       assertEquals(2, coord.count("llmExec"), "two LLM turns: tool-call then final answer");
@@ -110,7 +111,7 @@ class CrashRecoveryIT {
   @Test
   void survivesWorkerCrashBetweenLlmAndTool() throws Exception {
     AgentRequest request = request("what is the secret word?");
-    AtomicReference<String> result = new AtomicReference<>();
+    AtomicReference<AgentResult> result = new AtomicReference<>();
     AtomicReference<Exception> failure = new AtomicReference<>();
 
     // Worker #1 — will be SIGKILLed mid-tool.
@@ -143,7 +144,8 @@ class CrashRecoveryIT {
       driver.get(180, java.util.concurrent.TimeUnit.SECONDS);
       assertNotNull(failure.get() == null ? result.get() : null, "driver failed: " + failure.get());
 
-      assertTrue(result.get().contains("BANANA"), "expected secret word, got: " + result.get());
+      assertTrue(
+          result.get().finalText().contains("BANANA"), "expected secret word, got: " + result.get());
       // Exactly-once side effect despite the crash:
       assertEquals(1, coord.count("toolSideEffect"), "tool side effect must run exactly once");
       // Tool was attempted twice (pre-crash + recovery), proving the interrupted activity re-ran:

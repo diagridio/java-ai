@@ -8,8 +8,10 @@ import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
 import io.diagrid.springai.durable.instance.InstanceIdDerivation;
 import io.diagrid.springai.durable.workflow.AgentRequest;
+import io.diagrid.springai.durable.workflow.AgentResult;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.diagrid.springai.durable.workflow.ChatOptionsSpec;
+import io.diagrid.springai.durable.workflow.TokenUsage;
 import io.diagrid.springai.durable.workflow.ToolSpec;
 import java.time.Duration;
 import java.util.HashMap;
@@ -22,6 +24,8 @@ import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.chat.model.ChatResponse;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
 import org.springframework.ai.support.ToolCallbacks;
@@ -57,16 +61,17 @@ class DurableAdvisorToolsTest {
   static class CapturingRunner extends DurableRunner {
     AgentRequest captured;
     String capturedWorkflowName;
+    AgentResult result = new AgentResult("FINAL", null, null, null, null, 1);
 
     CapturingRunner() {
       super(null, new InstanceIdDerivation(), Duration.ofSeconds(1));
     }
 
     @Override
-    public String run(AgentRequest request, String workflowName) {
+    public AgentResult run(AgentRequest request, String workflowName) {
       this.captured = request;
       this.capturedWorkflowName = workflowName;
-      return "FINAL";
+      return result;
     }
   }
 
@@ -215,6 +220,24 @@ class DurableAdvisorToolsTest {
 
     assertEquals(List.of("logging"), shadowed,
         "only a non-durable advisor ordered after the terminal durable advisor should be flagged");
+  }
+
+  @Test
+  void chatResponseExposesUsageFinishReasonAndModel() {
+    CapturingRunner runner = new CapturingRunner();
+    runner.result = new AgentResult("done", "stop", new TokenUsage(10, 5, 15), "gpt-4o", "resp-9", 2);
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    ChatResponse response = advisor.adviseCall(requestWithTools(), null).chatResponse();
+
+    assertEquals("done", response.getResult().getOutput().getText());
+    assertEquals("stop", response.getResult().getMetadata().getFinishReason());
+    assertEquals("gpt-4o", response.getMetadata().getModel());
+    assertEquals("resp-9", response.getMetadata().getId());
+    Usage usage = response.getMetadata().getUsage();
+    assertEquals(10, usage.getPromptTokens().intValue());
+    assertEquals(5, usage.getCompletionTokens().intValue());
+    assertEquals(15, usage.getTotalTokens().intValue());
   }
 
   private static CallAdvisor advisorAt(String name, int order) {

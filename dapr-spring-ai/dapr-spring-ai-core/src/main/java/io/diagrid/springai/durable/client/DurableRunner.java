@@ -2,6 +2,7 @@ package io.diagrid.springai.durable.client;
 
 import io.diagrid.springai.durable.instance.InstanceIdDerivation;
 import io.diagrid.springai.durable.workflow.AgentRequest;
+import io.diagrid.springai.durable.workflow.AgentResult;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.dapr.workflows.client.DaprWorkflowClient;
 import io.dapr.workflows.client.WorkflowFailureDetails;
@@ -53,18 +54,18 @@ public class DurableRunner {
    *
    * @throws TimeoutException if the workflow does not complete within the configured timeout
    */
-  public String run(AgentRequest request) throws TimeoutException {
+  public AgentResult run(AgentRequest request) throws TimeoutException {
     return run(request, AgentWorkflow.NAME);
   }
 
   /**
-   * Runs the request durably under the given workflow name and returns the final assistant text. The
-   * name lets a per-agent workflow (named after the ChatClient bean) be used instead of the generic
-   * type; it must be a name registered on the worker.
+   * Runs the request durably under the given workflow name and returns the {@link AgentResult} (final
+   * text plus aggregated response metadata). The name lets a per-agent workflow (named after the
+   * ChatClient bean) be used instead of the generic type; it must be a name registered on the worker.
    *
    * @throws TimeoutException if the workflow does not complete within the configured timeout
    */
-  public String run(AgentRequest request, String workflowName) throws TimeoutException {
+  public AgentResult run(AgentRequest request, String workflowName) throws TimeoutException {
     String instanceId = idDerivation.deriveInstanceId(request);
 
     // Already completed? Return its result without re-running. This is the reissue/dedup path. It is
@@ -74,7 +75,7 @@ public class DurableRunner {
     WorkflowState existing = client.getWorkflowState(instanceId, true);
     if (existing != null && existing.getRuntimeStatus() == WorkflowRuntimeStatus.COMPLETED) {
       LOG.info("Attaching to completed workflow instance {}", instanceId);
-      return existing.readOutputAs(String.class);
+      return existing.readOutputAs(AgentResult.class);
     }
 
     // Otherwise schedule, treating an "already exists" collision (an in-flight duplicate) as the
@@ -101,10 +102,10 @@ public class DurableRunner {
    * TERMINATED, CANCELED, …) has no valid output, so {@code readOutputAs} would return null/garbage;
    * surface it as an error carrying the backend failure details instead of masking the real failure.
    */
-  static String outputOrThrow(WorkflowState state, String instanceId) {
+  static AgentResult outputOrThrow(WorkflowState state, String instanceId) {
     WorkflowRuntimeStatus status = state.getRuntimeStatus();
     if (status == WorkflowRuntimeStatus.COMPLETED) {
-      return state.readOutputAs(String.class);
+      return state.readOutputAs(AgentResult.class);
     }
     WorkflowFailureDetails failure = state.getFailureDetails();
     String detail =
