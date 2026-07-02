@@ -78,6 +78,40 @@ The instance id is then `dsa-c-trip-42` on the first turn and `dsa-c-trip-42:<tu
 (turn = count of prior assistant messages). Without a conversationId it falls back to a content hash
 `dsa-h-<sha256>` — fine for demos, brittle for production (see the root README's **Durability key**).
 
+### Registering an inline (non-bean) agent
+
+Auto-registration — like the durable advisor — only sees `ChatClient` **beans**. A client built with
+the static `ChatClient.builder(chatModel)`, or held as a field inside a `@Component`, is invisible to
+the registry's bean post-processor. Register it exactly the way you'd attach the durable advisor
+manually: inject the registry's two beans (`AgentRegistrar`, `AgentRecordFactory`) and add an
+`AgentRegisteringAdvisor` carrying the name you want:
+
+```java
+@Component
+class BookingAgent {
+  private final ChatClient chat;
+
+  BookingAgent(ChatModel model, AgentRegistrar registrar, AgentRecordFactory factory) {
+    this.chat = ChatClient.builder(model)   // static build → not seen by the registry BPP
+        .defaultAdvisors(new AgentRegisteringAdvisor("bookingAgent", registrar, factory))
+        .build();
+  }
+}
+```
+
+On first call the agent registers itself, enriched with its live system prompt and advertised tools,
+and typed `DurableAgent` when the durability advisor is in its chain (plain `Agent` otherwise).
+
+The manually attached advisor registers on **first call**, not at startup — the eager thin record is
+written only for `ChatClient` beans. To make the agent appear before its first call, register a thin
+record yourself at startup (pass `durable` explicitly, since there's no call chain to infer it from):
+
+```java
+registrar.register(factory.buildThin("bookingAgent", true));
+```
+
+Requires the `dapr-spring-ai-agent-registry` module on the classpath.
+
 ## Gotchas
 
 - **`ChatClient.builder(chatModel)` → not durable.** Inject `ChatClient.Builder`, or add the
@@ -85,4 +119,5 @@ The instance id is then `dsa-c-trip-42` on the first turn and `dsa-c-trip-42:<tu
 - **Non-bean tools aren't crash-recoverable.** Back tools with `@Tool` beans where mid-call recovery
   matters.
 - **Per-agent workflow names + registry need a `ChatClient` bean.** A client built as a field is
-  durable but uses the generic workflow name and isn't registered.
+  durable but uses the generic workflow name and isn't auto-registered — attach
+  `AgentRegisteringAdvisor` manually (see **Registering an inline (non-bean) agent** above).
