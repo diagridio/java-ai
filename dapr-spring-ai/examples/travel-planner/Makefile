@@ -1,7 +1,8 @@
 APP_ID    := travel-planner-spring-ai-dapr
 DAPR_GRPC := 40001
 DAPR_HTTP := 3500
-PROJECT   ?= 
+PROJECT   ?=
+MSG       ?= Where am I going on my trip?
 
 .PHONY: dapr run run-dapr run-ollama test-weather test-guide test-trip test-research test-refine \
         test-route-quick test-route-long test-travel test-chat test-chat-isolated test-retry \
@@ -68,9 +69,10 @@ test-chat:
 	@echo "— turn 3 (alice): should recall Tokyo + interests —"
 	@curl -s -G "http://localhost:8080/chat" --data-urlencode "conversationId=alice" --data-urlencode "message=What should I do?"; echo
 
-## Isolation: a different conversationId has no memory of alice's trip.
+## Isolation: a different conversationId has no memory of alice's trip. Override the prompt with
+## MSG="..." (e.g. make test-chat-isolated MSG="What's my name?").
 test-chat-isolated:
-	@curl -s -G "http://localhost:8080/chat" --data-urlencode "conversationId=bob" --data-urlencode "message=Where am I going on my trip?"; echo
+	@curl -s -G "http://localhost:8080/chat" --data-urlencode "conversationId=bob" --data-urlencode "message=$(MSG)"; echo
 
 ## Retry demo: BookingAgent's tool throws on every odd invocation. Each tool call is a durable
 ## activity, so the runtime retries it instead of failing the workflow. Every call starts on an odd
