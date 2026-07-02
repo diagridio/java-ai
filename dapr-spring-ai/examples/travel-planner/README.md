@@ -61,6 +61,32 @@ travelPlanner (nested)
 | Conditional | `travelRouter` | days≤1 → weather only; days>1 → weather + guide |
 | Nested | `travelPlanner` | parallel flight/hotel/activity research → formatter |
 
+### Wiring patterns — auto vs manual
+
+The library is drop-in: build a `ChatClient` from the injected `ChatClient.Builder` and durability
+(and, for a `@Bean`, registry) attach automatically. But every layer also has a **manual** escape
+hatch for when you can't use the managed builder. This module shows a bit of each — the `agents/`
+agents use the automatic path; the three in **`agents/manual/`** use the manual one:
+
+| Agent(s) | Declared as | Durability | Registry | Memory |
+|----------|-------------|-----------|----------|--------|
+| WeatherAssistant, Flight/Hotel/Activity, CityGuide, ItineraryFormatter, BookingAgent | `@Component` from injected `Builder` | auto | — | — |
+| `packingAssistant`, `budgetAdvisor` (`RegistryAgents`) | `@Bean ChatClient` | auto | **auto** (bean post-processor) | — |
+| TravelConcierge | `@Component` | auto | — | **auto** (`ChatMemory` bean) |
+| **ManualDurabilityAgent** | `@Component`, static `ChatClient.builder(model)` | **manual** — inject `DurableAdvisor`, `.defaultAdvisors(it)` | — | — |
+| **ManualRegistryAgent** | `@Component` (client is a field, not a `@Bean`) | auto | **manual** — `new AgentRegisteringAdvisor(name, registrar, factory)` | — |
+| **DurableMemoryConcierge** | `@Component` | auto | — | **manual** — `MessageWindowChatMemory` on the injected Dapr `ChatMemoryRepository` |
+
+The three manual agents are `@Profile`-gated (they depend on Dapr-only beans), so enable the matching
+profile — `make run-dapr` turns on all three. Exercise them with the `make test-manual-*` targets
+(each endpoint returns a hint if its profile is off):
+
+```bash
+make test-manual-durability   # runs as a durable workflow via a hand-attached advisor   (needs: dapr)
+make test-manual-registry     # a non-bean agent that registers itself as "visaAdvisor"   (needs: registry)
+make test-manual-memory       # Dapr-backed MessageWindowChatMemory built by hand          (needs: memory)
+```
+
 ## Prerequisites
 
 - **Java 21** (LTS; enables virtual threads for the blocking durable call — see `.sdkmanrc`), **Maven 3.9+**
@@ -109,6 +135,9 @@ shared `dapr_redis` container) — inspectable in the **Diagrid dashboard** and 
 | `make test-travel` | travelPlanner | nested parallel research + formatter |
 | `make test-chat` | TravelConcierge | multi-turn chat with per-conversation memory |
 | `make test-chat-isolated` | TravelConcierge | a different conversationId has no shared memory |
+| `make test-manual-durability` | ManualDurabilityAgent | manual durability — needs the `dapr` profile |
+| `make test-manual-registry` | ManualRegistryAgent | manual registry — needs the `registry` profile |
+| `make test-manual-memory` | DurableMemoryConcierge | manual Dapr-backed memory — needs the `memory` profile |
 
 ```bash
 curl "http://localhost:8080/travel/plan?origin=NYC&destination=Paris&date=2025-07-01&nights=5&interests=history,food"
@@ -170,7 +199,8 @@ travel-planner/
     ├── TravelPlannerApplication.java
     ├── tools/              6 @Tool classes (mock data + FlakyApiTools for the retry demo)
     ├── agents/             8 ChatClient @Component agents (incl. TravelConcierge, BookingAgent)
+    │   └── manual/         manual-wiring agents: ManualDurabilityAgent, ManualRegistryAgent, DurableMemoryConcierge
     ├── registry/           RegistryAgents (ChatClient @Bean agents, discovered by the registry)
     ├── orchestration/      TravelOrchestrationService (app-layer patterns)
-    └── web/                TravelControllers + ConciergeController + RetryController + RegistryAgentController
+    └── web/                TravelControllers + ConciergeController + RetryController + RegistryAgentController + ManualWiringController
 ```

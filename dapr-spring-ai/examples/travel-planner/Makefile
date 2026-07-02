@@ -88,6 +88,18 @@ test-packing:
 test-budget:
 	@curl -s "http://localhost:8080/budget?city=Tokyo&days=4"; echo
 
+## Manual-wiring demos (agents/manual). Each needs the matching profile — `make run-dapr` enables all
+## three. ManualDurabilityAgent attaches the durable advisor by hand; ManualRegistryAgent registers a
+## non-bean agent ("visaAdvisor") by hand; DurableMemoryConcierge builds Dapr-backed memory by hand.
+test-manual-durability:
+	@curl -s "http://localhost:8080/manual/durability?origin=SFO&destination=NRT&date=2026-08-01"; echo
+
+test-manual-registry:
+	@curl -s "http://localhost:8080/manual/registry?nationality=Spanish&destination=Japan"; echo
+
+test-manual-memory:
+	@curl -s -G "http://localhost:8080/manual/memory" --data-urlencode "conversationId=carol" --data-urlencode "message=I am going to Lisbon in July"; echo
+
 ## List the agent-registry records written to Redis (Dapr prefixes keys with the app-id).
 registry-list:
 	@docker exec dapr_redis redis-cli KEYS '*agents*'
