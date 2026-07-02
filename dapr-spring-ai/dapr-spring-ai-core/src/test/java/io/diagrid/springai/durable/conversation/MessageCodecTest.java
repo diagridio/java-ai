@@ -2,8 +2,10 @@ package io.diagrid.springai.durable.conversation;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertInstanceOf;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import java.net.URI;
 import java.util.List;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.messages.AssistantMessage;
@@ -12,6 +14,8 @@ import org.springframework.ai.chat.messages.MessageType;
 import org.springframework.ai.chat.messages.SystemMessage;
 import org.springframework.ai.chat.messages.ToolResponseMessage;
 import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.content.Media;
+import org.springframework.util.MimeTypeUtils;
 
 /**
  * Highest-risk integration point per the prototype brief: polymorphic {@code Message} round-tripping
@@ -34,6 +38,17 @@ class MessageCodecTest {
     assertInstanceOf(SystemMessage.class, back);
     assertEquals(MessageType.SYSTEM, back.getMessageType());
     assertEquals(original.getText(), back.getText());
+  }
+
+  @Test
+  void userMessageWithMediaFailsFast() {
+    // The durable records are text-only; media must fail fast rather than be silently dropped.
+    Media image = new Media(MimeTypeUtils.IMAGE_PNG, URI.create("http://example.com/cat.png"));
+    Message withMedia = UserMessage.builder().text("what is in this image?").media(image).build();
+
+    IllegalStateException e =
+        assertThrows(IllegalStateException.class, () -> codec.toRecord(withMedia));
+    assertTrue(e.getMessage().contains("media"), e.getMessage());
   }
 
   @Test

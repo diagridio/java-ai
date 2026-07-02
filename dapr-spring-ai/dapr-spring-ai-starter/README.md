@@ -122,3 +122,6 @@ Requires the `dapr-spring-ai-agent-registry` module on the classpath.
 - **Per-agent workflow names + registry need a `ChatClient` bean.** A client built as a field is
   durable but uses the generic workflow name and isn't auto-registered — attach
   `AgentRegisteringAdvisor` manually (see **Registering an inline (non-bean) agent** above).
+- **The durable advisor is terminal.** It short-circuits the chain (runs just before the terminal
+  `ChatModelCallAdvisor`), so any advisor ordered *after* it never runs — order yours *before* it.
+  The library WARNs once about stranded advisors. See the root README's **Wiring** section.

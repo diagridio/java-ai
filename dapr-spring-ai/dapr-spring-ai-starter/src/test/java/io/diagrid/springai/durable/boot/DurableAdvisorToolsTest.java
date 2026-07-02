@@ -18,6 +18,9 @@ import java.util.Map;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.Test;
 import org.springframework.ai.chat.client.ChatClientRequest;
+import org.springframework.ai.chat.client.ChatClientResponse;
+import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
+import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.messages.UserMessage;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.model.tool.ToolCallingChatOptions;
@@ -98,6 +101,10 @@ class DurableAdvisorToolsTest {
     assertEquals("weatherAssistant", runner.capturedWorkflowName, "per-agent advisor uses the given name");
     assertEquals(Ordered.LOWEST_PRECEDENCE - 2, perAgent.getOrder());
     assertTrue(perAgent.getOrder() < generic.getOrder(), "per-agent advisor must win by precedence");
+
+    assertEquals("DaprDurableAdvisor", generic.getName(), "generic advisor keeps the base name");
+    assertEquals("DaprDurableAdvisor[weatherAssistant]", perAgent.getName(),
+        "per-agent advisor name includes the workflow name for traceability");
 
     assertEquals("spring-ai.weatherAssistant.workflow",
         DurableChatClientBeanPostProcessor.workflowName("weatherAssistant"),
@@ -190,6 +197,43 @@ class DurableAdvisorToolsTest {
         advisor.adviseCall(request, null).chatResponse().getResult().getOutput().getText();
     assertEquals("FINAL", result);
     assertTrue(runner.captured.toolSpecs().isEmpty(), "a tool-less agent must advertise zero tools");
+  }
+
+  @Test
+  void shadowedAdvisorNamesFlagsStrandedAdvisorsButNotOwnKind() {
+    CapturingRunner runner = new CapturingRunner();
+    // Per-agent advisor at LOWEST_PRECEDENCE-2; the generic durable advisor at LOWEST_PRECEDENCE-1
+    // sits after it but is our own kind, so it must not be flagged.
+    DurableAdvisor perAgent =
+        new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec(), "weatherAssistant");
+    DurableAdvisor generic = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+    CallAdvisor before = advisorAt("memory", Ordered.HIGHEST_PRECEDENCE);
+    CallAdvisor stranded = advisorAt("logging", Ordered.LOWEST_PRECEDENCE);
+
+    List<String> shadowed =
+        perAgent.shadowedAdvisorNames(List.of(before, perAgent, generic, stranded));
+
+    assertEquals(List.of("logging"), shadowed,
+        "only a non-durable advisor ordered after the terminal durable advisor should be flagged");
+  }
+
+  private static CallAdvisor advisorAt(String name, int order) {
+    return new CallAdvisor() {
+      @Override
+      public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
+        return chain.nextCall(request);
+      }
+
+      @Override
+      public String getName() {
+        return name;
+      }
+
+      @Override
+      public int getOrder() {
+        return order;
+      }
+    };
   }
 
   /** A ToolCallingChatOptions whose getToolCallbacks() is null — what a no-tools ChatClient yields. */

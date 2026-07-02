@@ -26,6 +26,7 @@ public final class AgentRegistrar {
   private static final Logger LOG = LoggerFactory.getLogger(AgentRegistrar.class);
   private static final String AGENTS_KEY = "agents";
   private static final String INDEX_SUFFIX = ":_index";
+  private static final int INDEX_MAX_ATTEMPTS = 3;
 
   private final DaprClient client;
   private final String statestore;
@@ -60,32 +61,49 @@ public final class AgentRegistrar {
     }
   }
 
-  @SuppressWarnings({"unchecked", "rawtypes"})
   private void write(AgentMetadataSchema schema) {
     String prefix = AGENTS_KEY + ":" + team;
     // contentType=application/json keeps the value stored as JSON; partitionKey groups the team.
     Map<String, String> meta = Map.of("contentType", "application/json", "partitionKey", prefix);
 
     client.saveState(statestore, prefix + ":" + schema.name(), null, schema, meta, null).block();
+    ensureIndexed(prefix + INDEX_SUFFIX, meta, schema.name());
+  }
 
-    // Team index: read, append the name if absent, write back with the current etag.
-    String indexKey = prefix + INDEX_SUFFIX;
-    State<Map> indexState =
-        client.getState(new GetStateRequest(statestore, indexKey).setMetadata(meta), TypeRef.get(Map.class))
-            .block();
-
-    Map<String, Object> index = indexState != null && indexState.getValue() != null
-        ? new HashMap<>((Map<String, Object>) indexState.getValue())
-        : new HashMap<>();
-    List<String> names = index.get(AGENTS_KEY) instanceof List<?> existing
-        ? new ArrayList<>((List<String>) existing)
-        : new ArrayList<>();
-    if (names.contains(schema.name())) {
-      return;
+  // The team index is a read-modify-write under an etag, so two agents registering at once can race:
+  // the loser's etag is stale and its write is rejected, silently dropping it from the index. Retry a
+  // few times, re-reading the etag each attempt, so a rejected write re-applies onto the latest index
+  // instead of being lost. A final failure propagates to register(), which logs and swallows it.
+  @SuppressWarnings({"unchecked", "rawtypes"})
+  private void ensureIndexed(String indexKey, Map<String, String> meta, String name) {
+    RuntimeException lastError = null;
+    for (int attempt = 1; attempt <= INDEX_MAX_ATTEMPTS; attempt++) {
+      State<Map> indexState =
+          client.getState(new GetStateRequest(statestore, indexKey).setMetadata(meta), TypeRef.get(Map.class))
+              .block();
+      Map<String, Object> index = indexState != null && indexState.getValue() != null
+          ? new HashMap<>((Map<String, Object>) indexState.getValue())
+          : new HashMap<>();
+      List<String> names = index.get(AGENTS_KEY) instanceof List<?> existing
+          ? new ArrayList<>((List<String>) existing)
+          : new ArrayList<>();
+      if (names.contains(name)) {
+        return;
+      }
+      names.add(name);
+      index.put(AGENTS_KEY, names);
+      String etag = indexState != null ? indexState.getEtag() : null;
+      try {
+        client.saveState(statestore, indexKey, etag, index, meta, null).block();
+        return;
+      } catch (RuntimeException e) {
+        lastError = e;
+        LOG.debug("Team index update for '{}' rejected on attempt {}/{} (etag conflict?); retrying",
+            name, attempt, INDEX_MAX_ATTEMPTS);
+      }
     }
-    names.add(schema.name());
-    index.put(AGENTS_KEY, names);
-    String etag = indexState != null ? indexState.getEtag() : null;
-    client.saveState(statestore, indexKey, etag, index, meta, null).block();
+    throw lastError != null
+        ? lastError
+        : new IllegalStateException("Team index update failed for agent '" + name + "'");
   }
 }

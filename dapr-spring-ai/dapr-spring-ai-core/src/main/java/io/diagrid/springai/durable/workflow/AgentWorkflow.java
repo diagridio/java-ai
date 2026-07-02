@@ -2,6 +2,7 @@ package io.diagrid.springai.durable.workflow;
 
 import io.diagrid.springai.durable.conversation.MessageRecord;
 import io.diagrid.springai.durable.conversation.ToolCallRecord;
+import io.dapr.durabletask.Task;
 import io.dapr.workflows.Workflow;
 import io.dapr.workflows.WorkflowContext;
 import io.dapr.workflows.WorkflowStub;
@@ -17,7 +18,9 @@ import java.util.List;
  * the seed (workflow input) plus the awaited activity results — no separate durable state. On replay
  * each {@code callActivity(...).await()} returns the persisted result rather than re-executing, so
  * the accumulated {@code conversation} list is rebuilt identically. All data formatting and the
- * model/tool I/O happen inside activities.
+ * model/tool I/O happen inside activities. A turn's tool calls are fanned out (scheduled together,
+ * awaited with {@code ctx.allOf}) so they run concurrently; {@code allOf} preserves scheduling order,
+ * so the reconstructed tool-response record is deterministic across replays.
  *
  * <p><b>One orchestrator, registered under several names.</b> This single generic orchestrator runs
  * the loop for every {@code ChatClient} call. It is registered under {@link #NAME} (the fallback used
@@ -84,23 +87,34 @@ public final class AgentWorkflow implements Workflow {
           return;
         }
 
-        List<ToolResult> batch = new ArrayList<>(llm.toolCalls().size());
+        // Fan-out/fan-in: schedule every tool call of this turn, then await them together, so the
+        // tools of one turn run concurrently instead of serially. Task creation order is deterministic
+        // (the model's tool-call order) and ctx.allOf preserves that order in its result list, so the
+        // reconstructed TOOL record — and therefore replay — is identical. allOf throws
+        // CompositeTaskFailedException if any tool fails, which fails the workflow just as a serial
+        // await would (each task already carries the retry policy).
+        List<Task<ToolResult>> toolTasks = new ArrayList<>(llm.toolCalls().size());
         for (ToolCallRecord call : llm.toolCalls()) {
           ToolActivityInput toolInput =
               new ToolActivityInput(call.id(), call.name(), call.arguments());
-          ToolResult result = runActivity(ctx, TOOL_ACTIVITY, toolInput, ToolResult.class);
-          batch.add(result);
+          toolTasks.add(callActivity(ctx, TOOL_ACTIVITY, toolInput, ToolResult.class));
         }
+        List<ToolResult> batch = ctx.allOf(toolTasks).await();
         conversation.add(ToolResult.toMessageRecord(batch));
       }
     };
   }
 
-  // Schedule an activity with the configured retry options when present, plain otherwise.
-  private <V> V runActivity(WorkflowContext ctx, String name, Object input, Class<V> returnType) {
+  // Schedule an activity as a Task with the configured retry options when present, plain otherwise.
+  private <V> Task<V> callActivity(WorkflowContext ctx, String name, Object input, Class<V> returnType) {
     if (activityOptions != null) {
-      return ctx.callActivity(name, input, activityOptions, returnType).await();
+      return ctx.callActivity(name, input, activityOptions, returnType);
     }
-    return ctx.callActivity(name, input, returnType).await();
+    return ctx.callActivity(name, input, returnType);
+  }
+
+  // Schedule and immediately await a single activity (used for the LLM turn).
+  private <V> V runActivity(WorkflowContext ctx, String name, Object input, Class<V> returnType) {
+    return callActivity(ctx, name, input, returnType).await();
   }
 }

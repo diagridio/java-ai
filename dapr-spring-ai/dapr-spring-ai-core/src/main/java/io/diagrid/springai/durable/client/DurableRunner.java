@@ -4,6 +4,7 @@ import io.diagrid.springai.durable.instance.InstanceIdDerivation;
 import io.diagrid.springai.durable.workflow.AgentRequest;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.dapr.workflows.client.DaprWorkflowClient;
+import io.dapr.workflows.client.WorkflowFailureDetails;
 import io.dapr.workflows.client.WorkflowRuntimeStatus;
 import io.dapr.workflows.client.WorkflowState;
 import java.time.Duration;
@@ -92,7 +93,26 @@ public class DurableRunner {
     if (completed == null) {
       throw new IllegalStateException("No workflow instance found after scheduling: " + instanceId);
     }
-    return completed.readOutputAs(String.class);
+    return outputOrThrow(completed, instanceId);
+  }
+
+  /**
+   * Returns the workflow output only when it genuinely COMPLETED. Any other terminal state (FAILED,
+   * TERMINATED, CANCELED, …) has no valid output, so {@code readOutputAs} would return null/garbage;
+   * surface it as an error carrying the backend failure details instead of masking the real failure.
+   */
+  static String outputOrThrow(WorkflowState state, String instanceId) {
+    WorkflowRuntimeStatus status = state.getRuntimeStatus();
+    if (status == WorkflowRuntimeStatus.COMPLETED) {
+      return state.readOutputAs(String.class);
+    }
+    WorkflowFailureDetails failure = state.getFailureDetails();
+    String detail =
+        failure == null
+            ? "no failure details"
+            : failure.getErrorType() + ": " + failure.getErrorMessage();
+    throw new IllegalStateException(
+        "Durable workflow " + instanceId + " ended in status " + status + " (" + detail + ")");
   }
 
   /** The backend signals a duplicate active instance with an "already exists" error message. */

@@ -16,6 +16,11 @@ import org.springframework.ai.chat.messages.UserMessage;
  * <p>Conversion to Spring AI types is confined to this class so that the rest of the workflow/
  * activity code deals only in framework-agnostic records. The JSON form uses Jackson 2 to match the
  * converter durabletask uses for activity payloads.
+ *
+ * <p><b>Limitation: text only.</b> {@link MessageRecord} carries text, tool calls, and tool responses
+ * — not multimodal media. A {@link UserMessage} carrying media (images, audio, …) fails fast in
+ * {@link #toRecord} rather than silently dropping it on the durable path; multimodal durable calls are
+ * not supported yet.
  */
 public final class MessageCodec {
 
@@ -33,7 +38,7 @@ public final class MessageCodec {
   public MessageRecord toRecord(Message message) {
     return switch (message.getMessageType()) {
       case SYSTEM -> MessageRecord.system(message.getText());
-      case USER -> MessageRecord.user(message.getText());
+      case USER -> toUserRecord((UserMessage) message);
       case ASSISTANT -> toAssistantRecord((AssistantMessage) message);
       case TOOL -> toToolRecord((ToolResponseMessage) message);
     };
@@ -71,6 +76,17 @@ public final class MessageCodec {
     } catch (JsonProcessingException e) {
       throw new IllegalStateException("Failed to deserialize MessageRecord", e);
     }
+  }
+
+  private MessageRecord toUserRecord(UserMessage message) {
+    if (message.getMedia() != null && !message.getMedia().isEmpty()) {
+      throw new IllegalStateException(
+          "Durable ChatClient calls do not carry multimodal UserMessage media: the durable workflow "
+              + "records are text-only, so " + message.getMedia().size() + " media item(s) would be "
+              + "dropped. Send a text-only prompt on the durable path, or run this call without the "
+              + "durable advisor.");
+    }
+    return MessageRecord.user(message.getText());
   }
 
   private MessageRecord toAssistantRecord(AssistantMessage message) {

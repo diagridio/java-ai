@@ -65,6 +65,14 @@ ReflectionAgent(ChatModel model, DurableAdvisor durable) {
 > registered. To get per-agent naming + registration, expose each `ChatClient` as
 > its own `@Bean` (the bean name becomes the agent name).
 
+**The durable advisor is terminal.** It replaces the model call, so it does *not*
+call the rest of the advisor chain — it runs at `LOWEST_PRECEDENCE - 1` (just
+before Spring AI's terminal `ChatModelCallAdvisor`) and short-circuits there. Your
+own advisors that need to run must be ordered *before* it (a lower order / higher
+precedence); an advisor ordered *after* it will never run. The library logs a
+one-time WARN naming any stranded advisors it finds. Request-observing advisors
+(memory, RAG, logging) already sit earlier by default and are unaffected.
+
 See **[`dapr-spring-ai-starter/README.md`](dapr-spring-ai/dapr-spring-ai-starter/README.md)** for a
 short cookbook on defining agents — the two shapes (`@Component` vs `@Bean`), the hybrid pattern,
 tool crash-safety, and passing a conversationId.

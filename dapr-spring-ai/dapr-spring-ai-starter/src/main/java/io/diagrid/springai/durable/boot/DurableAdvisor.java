@@ -6,11 +6,13 @@ import io.diagrid.springai.durable.workflow.AgentRequest;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.diagrid.springai.durable.workflow.ChatOptionsSpec;
 import io.diagrid.springai.durable.workflow.ToolSpec;
+import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
+import org.springframework.ai.chat.client.advisor.ChatModelCallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
 import org.springframework.ai.chat.memory.ChatMemory;
@@ -33,10 +35,14 @@ import org.slf4j.LoggerFactory;
  * late enough that the request it captures already has memory/RAG context and the tools that Spring
  * AI's {@code ToolCallingAdvisor} (and request building) merged into the prompt options, but strictly
  * before the terminal advisor so this one reliably runs and short-circuits it. It does NOT call the
- * rest of the chain. The <b>generic</b> instance (added to every ChatClient) runs at
- * {@code LOWEST_PRECEDENCE - 1}; a <b>per-agent</b> instance (added to a named ChatClient bean, running
- * under a workflow named after the bean) runs at {@code LOWEST_PRECEDENCE - 2} so it wins over the
- * generic one on the same client.
+ * rest of the chain, so it is itself <b>terminal</b>: any non-terminal advisor ordered after it will
+ * never run. The advisor logs a one-time WARN naming any such stranded advisors (the framework's own
+ * {@link ChatModelCallAdvisor}, which this one deliberately replaces, is not flagged). The
+ * <b>generic</b> instance (added to every ChatClient) runs at {@code LOWEST_PRECEDENCE - 1} and is
+ * named {@code DaprDurableAdvisor}; a <b>per-agent</b> instance (added to a named ChatClient bean,
+ * running under a workflow named after the bean) runs at {@code LOWEST_PRECEDENCE - 2} so it wins over
+ * the generic one on the same client, and is named {@code DaprDurableAdvisor[<workflowName>]} for
+ * traceability.
  *
  * <p><b>Tools.</b> The advertised tool surface is the union of (a) globally discovered {@code @Tool}
  * beans and (b) the request-scoped tools attached to this specific ChatClient via
@@ -56,11 +62,17 @@ public final class DurableAdvisor implements CallAdvisor {
 
   private static final Logger LOG = LoggerFactory.getLogger(DurableAdvisor.class);
 
+  /** Base advisor name; per-agent instances append {@code [<workflowName>]}. */
+  static final String NAME_PREFIX = "DaprDurableAdvisor";
+
   private final DurableRunner runner;
   private final DiscoveredTools tools;
   private final MessageCodec codec;
   private final String workflowName;
   private final int order;
+
+  /** Guards the one-time shadowed-advisor WARN. */
+  private volatile boolean shadowingChecked;
 
   /** Generic advisor for every ChatClient: runs the shared {@link AgentWorkflow} type. */
   public DurableAdvisor(DurableRunner runner, DiscoveredTools tools, MessageCodec codec) {
@@ -88,6 +100,7 @@ public final class DurableAdvisor implements CallAdvisor {
 
   @Override
   public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
+    warnIfShadowingOnce(chain);
     String conversationId = conversationId(request);
     List<ToolSpec> toolSpecs = resolveToolSpecs(request.prompt().getOptions());
     ChatOptionsSpec options = ChatOptionsSpec.from(request.prompt().getOptions());
@@ -111,6 +124,12 @@ public final class DurableAdvisor implements CallAdvisor {
   /**
    * Union of globally discovered tools and this request's tools (request wins by name). Request tool
    * callbacks are registered into the shared registry so the workflow's tool activity can run them.
+   *
+   * <p>Reading {@link ToolCallingChatOptions#getToolCallbacks()} is the complete request tool surface
+   * in Spring AI 2.0 GA: {@code ChatClient.Builder} exposes only {@code defaultTools(Object...)} (the
+   * string-name {@code getToolNames()} API of the M-series was removed), and tool objects,
+   * {@code ToolCallback}s, and {@code ToolCallbackProvider}s (e.g. MCP) are all resolved to callbacks
+   * before the call — so there is no separate by-name resolution to do here.
    */
   private List<ToolSpec> resolveToolSpecs(ChatOptions chatOptions) {
     LinkedHashMap<String, ToolSpec> byName = new LinkedHashMap<>();
@@ -142,7 +161,9 @@ public final class DurableAdvisor implements CallAdvisor {
 
   @Override
   public String getName() {
-    return "DaprDurableAdvisor";
+    // Generic instance keeps the base name; per-agent instances append the workflow name so multiple
+    // durable advisors on one chain are distinguishable in traces (and to avoid advisor-name dedup).
+    return AgentWorkflow.NAME.equals(workflowName) ? NAME_PREFIX : NAME_PREFIX + "[" + workflowName + "]";
   }
 
   @Override
@@ -150,5 +171,37 @@ public final class DurableAdvisor implements CallAdvisor {
     // Just before the terminal ChatModelCallAdvisor (LOWEST_PRECEDENCE), after the ToolCallingAdvisor
     // + request building. Per-agent advisors sit one step earlier so they win over the generic one.
     return order;
+  }
+
+  // The durable advisor is terminal: it does not call chain.nextCall(), so any advisor ordered after
+  // it never runs — except the framework's ChatModelCallAdvisor, which this advisor deliberately
+  // replaces. Warn once per instance if a user advisor is stranded behind it.
+  private void warnIfShadowingOnce(CallAdvisorChain chain) {
+    if (chain == null || shadowingChecked) {
+      return;
+    }
+    shadowingChecked = true;
+    List<String> shadowed = shadowedAdvisorNames(chain.getCallAdvisors());
+    if (!shadowed.isEmpty()) {
+      LOG.warn(
+          "Durable advisor '{}' is terminal (it short-circuits the chain), so these advisors ordered "
+              + "after it will never run: {}. Give them a lower order (higher precedence) than the "
+              + "durable advisor if they must execute.",
+          getName(), shadowed);
+    }
+  }
+
+  /** Names of advisors ordered strictly after this one, excluding our own kind and the terminal. */
+  List<String> shadowedAdvisorNames(List<CallAdvisor> advisors) {
+    List<String> names = new ArrayList<>();
+    for (CallAdvisor advisor : advisors) {
+      if (advisor instanceof DurableAdvisor || advisor instanceof ChatModelCallAdvisor) {
+        continue;
+      }
+      if (advisor.getOrder() > order) {
+        names.add(advisor.getName());
+      }
+    }
+    return names;
   }
 }

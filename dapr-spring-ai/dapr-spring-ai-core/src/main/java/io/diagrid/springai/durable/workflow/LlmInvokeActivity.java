@@ -19,10 +19,12 @@ import io.dapr.workflows.WorkflowActivityContext;
  * the tool surface advertised, and project the assistant response (text + any tool calls) to a
  * serializable {@link LlmResult}.
  *
- * <p>In Spring AI 2.0 the ChatModel returns tool-call requests without executing them, so this
- * activity never runs tools — the orchestrator dispatches each as its own {@link ToolInvokeActivity}.
- * Tool callbacks are attached as {@link DefinitionOnlyToolCallback} (definition only, execution
- * disabled). All Spring AI types are confined to this activity; the workflow only sees records.
+ * <p>On the durable path the ChatModel must return tool-call requests rather than executing them, so
+ * the orchestrator can dispatch each as its own {@link ToolInvokeActivity}. Tool callbacks are
+ * attached as {@link DefinitionOnlyToolCallback}, which carries the tool definition but throws if
+ * invoked — the loud backstop, since Spring AI 2.0 GA no longer exposes an options flag to disable
+ * in-model execution. All Spring AI types are confined to this activity; the workflow only sees
+ * records.
  */
 public final class LlmInvokeActivity implements WorkflowActivity {
 

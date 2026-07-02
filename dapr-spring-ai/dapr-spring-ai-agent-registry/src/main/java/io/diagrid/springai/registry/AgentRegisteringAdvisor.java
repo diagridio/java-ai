@@ -24,7 +24,10 @@ public final class AgentRegisteringAdvisor implements CallAdvisor {
 
   private static final Logger LOG = LoggerFactory.getLogger(AgentRegisteringAdvisor.class);
 
-  /** {@code getName()} of the durability advisor; its presence marks an agent as durable. */
+  /**
+   * Name <b>prefix</b> of the durability advisor; its presence in the chain marks an agent as durable.
+   * Per-agent instances are named {@code DaprDurableAdvisor[<workflowName>]}, so detection is by prefix.
+   */
   public static final String DURABLE_ADVISOR_NAME = "DaprDurableAdvisor";
 
   private final String agentName;
@@ -58,9 +61,10 @@ public final class AgentRegisteringAdvisor implements CallAdvisor {
     return chain.nextCall(request);
   }
 
-  // An agent is durable when the durability advisor is present in its call chain.
+  // An agent is durable when the durability advisor is present in its call chain (match by name
+  // prefix, since per-agent instances are named DaprDurableAdvisor[<workflowName>]).
   private static boolean isDurable(CallAdvisorChain chain) {
-    return chain.getCallAdvisors().stream().anyMatch(a -> DURABLE_ADVISOR_NAME.equals(a.getName()));
+    return chain.getCallAdvisors().stream().anyMatch(a -> a.getName().startsWith(DURABLE_ADVISOR_NAME));
   }
 
   @Override

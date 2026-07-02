@@ -53,6 +53,6 @@ public final class AgentRegistryInitializer implements SmartInitializingSingleto
   // (The per-call chain gives the precise per-agent answer once an agent is first called.)
   private boolean durabilityPresent() {
     return context.getBeansOfType(CallAdvisor.class).values().stream()
-        .anyMatch(a -> AgentRegisteringAdvisor.DURABLE_ADVISOR_NAME.equals(a.getName()));
+        .anyMatch(a -> a.getName().startsWith(AgentRegisteringAdvisor.DURABLE_ADVISOR_NAME));
   }
 }

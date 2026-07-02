@@ -43,14 +43,23 @@ public final class DiscoveredTools {
   /** Scans the context for beans carrying {@code @Tool} methods and fills the registry + specs. */
   public void populate(ApplicationContext context) {
     for (String beanName : context.getBeanDefinitionNames()) {
+      // Resolve the bean TYPE without instantiating it, so scanning never forces a @Lazy (or
+      // otherwise deferred) bean to initialize just to check for @Tool methods. Only beans that
+      // actually declare a @Tool method are instantiated below.
+      Class<?> type;
+      try {
+        type = context.getType(beanName, false);
+      } catch (RuntimeException e) {
+        continue; // unresolvable/abstract bean definition — skip
+      }
+      if (type == null || !hasToolMethod(type)) {
+        continue;
+      }
       Object bean;
       try {
         bean = context.getBean(beanName);
       } catch (RuntimeException e) {
-        continue; // unresolvable/abstract/scoped bean — skip
-      }
-      if (!hasToolMethod(bean.getClass())) {
-        continue;
+        continue; // scoped/unresolvable at runtime — skip
       }
       for (ToolCallback callback : ToolCallbacks.from(bean)) {
         String name = callback.getToolDefinition().name();
