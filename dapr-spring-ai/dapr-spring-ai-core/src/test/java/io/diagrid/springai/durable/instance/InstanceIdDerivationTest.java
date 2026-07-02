@@ -46,33 +46,45 @@ class InstanceIdDerivationTest {
         conversationId);
   }
 
-  // ---- Conversation-id path (primary) ----
+  // ---- Conversation-id path (primary): dsa-c-<id>-<hash8> ----
 
   @Test
-  void firstTurnHasNoTurnSuffix() {
-    // seedMessages() has no assistant reply yet → turn 0 → bare conversation id.
+  void conversationIdPathIsPrefixPlusShortContentHash() {
     String id = derivation.deriveInstanceId(conversationRequest("conv-42", seedMessages()));
-    assertEquals("dsa-c-conv-42", id);
+    assertTrue(id.matches("dsa-c-conv-42-[0-9a-f]{8}"), "expected dsa-c-<id>-<hash8>, got: " + id);
   }
 
   @Test
-  void sameConversationAndTurnYieldSameId() {
+  void identicalReissueYieldsSameId() {
+    // A genuine retry resends the same request → same content hash → same id → reattaches.
     assertEquals(
         derivation.deriveInstanceId(conversationRequest("conv-42", seedMessages())),
         derivation.deriveInstanceId(conversationRequest("conv-42", seedMessages())));
   }
 
   @Test
-  void laterTurnAppendsColonTurn() {
-    List<MessageRecord> turn1 = seedMessages(); // 0 assistant replies → turn 0
-    List<MessageRecord> turn2 =
+  void windowEvictionDoesNotCollideAcrossTurns() {
+    // Regression for the turn-counter collision. Two DIFFERENT turns of one conversation that, under
+    // MessageWindowChatMemory eviction, present the SAME number of assistant messages (here 1). The
+    // old count-based key derived the same id for both, so the later call attached to the earlier
+    // COMPLETED workflow and returned a stale answer without calling the LLM. Keying on content keeps
+    // the turns distinct.
+    List<MessageRecord> earlyTurn =
         List.of(
             MessageRecord.system("You are a travel agent."),
             MessageRecord.user("book me a flight to Madrid"),
-            MessageRecord.assistant("Booked.", List.of()), // 1 prior assistant reply → turn 1
-            MessageRecord.user("now a hotel"));
-    assertEquals("dsa-c-conv-42", derivation.deriveInstanceId(conversationRequest("conv-42", turn1)));
-    assertEquals("dsa-c-conv-42:1", derivation.deriveInstanceId(conversationRequest("conv-42", turn2)));
+            MessageRecord.assistant("Booked your flight.", List.of()),
+            MessageRecord.user("and a hotel"));
+    List<MessageRecord> laterTurn =
+        List.of(
+            MessageRecord.system("You are a travel agent."),
+            MessageRecord.user("and a hotel"), // window slid: the earlier flight Q/A was evicted
+            MessageRecord.assistant("Booked your hotel.", List.of()),
+            MessageRecord.user("what's the weather in Madrid?"));
+    assertNotEquals(
+        derivation.deriveInstanceId(conversationRequest("trip", earlyTurn)),
+        derivation.deriveInstanceId(conversationRequest("trip", laterTurn)),
+        "turns with an equal assistant-count but different content must not collide");
   }
 
   @Test
@@ -85,7 +97,9 @@ class InstanceIdDerivationTest {
   @Test
   void conversationIdIsSanitizedForUnsafeCharacters() {
     String id = derivation.deriveInstanceId(conversationRequest("user/42 session", seedMessages()));
-    assertEquals("dsa-c-user_42_session", id);
+    assertTrue(
+        id.matches("dsa-c-user_42_session-[0-9a-f]{8}"),
+        "unsafe chars must collapse to '_' with the hash suffix following: " + id);
   }
 
   // ---- Strict mode ----
@@ -99,7 +113,9 @@ class InstanceIdDerivationTest {
   @Test
   void strictModeStillWorksWithConversationId() {
     InstanceIdDerivation strict = new InstanceIdDerivation(true);
-    assertEquals("dsa-c-conv-42", strict.deriveInstanceId(conversationRequest("conv-42", seedMessages())));
+    assertTrue(
+        strict.deriveInstanceId(conversationRequest("conv-42", seedMessages()))
+            .matches("dsa-c-conv-42-[0-9a-f]{8}"));
   }
 
   // ---- Content-hash fallback (stateless, lenient) ----

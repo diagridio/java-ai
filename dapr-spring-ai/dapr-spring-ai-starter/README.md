@@ -74,9 +74,10 @@ chat.prompt().user(message)
     .call().content();
 ```
 
-The instance id is then `dsa-c-trip-42` on the first turn and `dsa-c-trip-42:<turn>` on later ones
-(turn = count of prior assistant messages). Without a conversationId it falls back to a content hash
-`dsa-h-<sha256>` — fine for demos, brittle for production (see the root README's **Durability key**).
+The instance id is then `dsa-c-trip-42-<hash8>` — the conversation id namespaces a short content hash
+of the request, so an identical reissue of a turn reattaches. Without a conversationId it falls back
+to `dsa-h-<sha256>` (the same hash, un-namespaced). Both key on content; see the root README's
+**Durability key** for the determinism caveat they share.
 
 ### Registering an inline (non-bean) agent
 

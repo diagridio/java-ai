@@ -71,23 +71,35 @@ tool crash-safety, and passing a conversationId.
 
 ## Durability key (demo vs production)
 
-Each call is run as a workflow identified by a deterministic **instance id** —
+Each call runs as a workflow identified by a deterministic **instance id** —
 that id is what lets a reissued call reattach to an in-flight or completed
-workflow instead of starting (and double-executing) a new one. It is resolved
-two ways:
+workflow instead of starting (and double-executing) a new one. It is a pure
+function of the request, resolved two ways:
 
 - **With a conversation id** (`ChatMemory.CONVERSATION_ID` set on the call) →
-  the id is `conversationId + turn`. Stable and robust to non-deterministic
-  prompt content. **This is the production path.**
-- **Without one** → a content hash of the request. Zero-config, so the
-  examples and demos "just work" — but it is brittle (any non-deterministic
-  prompt content, e.g. reordered RAG chunks or a timestamp, changes the hash
-  and defeats dedup). **Not recommended for production.** The library logs a
-  one-time `WARN` the first time it falls back to the hash.
+  `dsa-c-<conversationId>-<hash8>`: a short content hash of the request,
+  namespaced by the conversation so a dashboard can group a conversation's turns
+  and hash collisions stay scoped to one conversation. **Recommended for
+  production** — set a conversation id and, optionally,
+  `dapr.spring-ai.require-conversation-id=true` so a call without one fails fast.
+- **Without one** → `dsa-h-<hash>`: the same content hash over the whole request,
+  un-namespaced. Zero-config, so demos "just work"; the library logs a one-time
+  `WARN` the first time it falls back.
 
-For production, set a conversation id on your calls, and optionally set
-`dapr.spring-ai.require-conversation-id=true` so a call without one fails fast
-instead of silently using the hash.
+Both paths key on **content**, so both share one caveat: non-deterministic prompt
+content (reordered RAG chunks, an injected timestamp) changes the hash and
+defeats reattach. For reliable dedup, keep a given turn's seed prompt
+deterministic. (An earlier design keyed the conversation path on a turn *count*
+to sidestep this, but Spring AI's `MessageWindowChatMemory` evicts old messages,
+making any count non-monotonic — two turns could collide on the same count and
+return a stale answer — so the key is content-based.)
+
+> **Drift from Dapr Agents.** Dapr Agents schedules each run under a random
+> `uuid.uuid4().hex` (unless you pass one) and relies on its external memory store
+> for continuity — a reissue starts a fresh workflow, with no dedup. This library
+> derives the id from the request instead, so a reissue reattaches and never
+> re-runs completed LLM calls or tool side effects. The cost is the caveat above;
+> random ids avoid it but give no reattach.
 
 ## Workflow names: per agent, one orchestrator
 

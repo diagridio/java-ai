@@ -5,8 +5,6 @@ import com.fasterxml.jackson.databind.MapperFeature;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import com.fasterxml.jackson.databind.ObjectWriter;
 import com.fasterxml.jackson.databind.SerializationFeature;
-import io.diagrid.springai.durable.conversation.MessageRecord;
-import io.diagrid.springai.durable.conversation.Role;
 import io.diagrid.springai.durable.workflow.AgentRequest;
 import java.security.MessageDigest;
 import java.security.NoSuchAlgorithmException;
@@ -21,18 +19,32 @@ import org.slf4j.LoggerFactory;
  *
  * <p>Resolution order:
  * <ol>
- *   <li><b>Conversation id present</b> → {@code dsa-c-<conversationId>} for the first turn, and
- *       {@code dsa-c-<conversationId>:<turn>} for later turns, where {@code turn} is the 0-based
- *       count of prior assistant replies in the request. This needs no hashing and is robust to
- *       non-deterministic prompt content (RAG ordering, timestamps): a retry of the same turn
- *       resends the same messages → same turn → same id; the next turn carries one more prior reply
- *       → a new id. The conversation id is the natural, stable durability key (e.g. Spring AI's
- *       {@code ChatMemory.CONVERSATION_ID}).</li>
+ *   <li><b>Conversation id present</b> → {@code dsa-c-<conversationId>-<hash8>}, where {@code hash8}
+ *       is the first 8 hex chars of a SHA-256 over the canonical request. The conversation id groups
+ *       a conversation's turns for readability; the content hash is the actual discriminator and
+ *       makes an identical reissue of a turn reattach (same content → same hash → same id). Keying on
+ *       <em>content</em> rather than a positional turn <em>count</em> is deliberate: Spring AI's
+ *       {@code MessageWindowChatMemory} evicts old messages, so any count of prior replies is
+ *       non-monotonic — two different turns can plateau on the same count and collide, attaching a
+ *       later call to an earlier COMPLETED workflow and returning a stale answer. The content hash
+ *       has no such plateau: distinct turns carry distinct message histories. Caveat: non-deterministic
+ *       prompt content (reordered RAG chunks, injected timestamps) changes the hash, so a reissue that
+ *       regenerates different content will not reattach — keep the seed prompt deterministic for
+ *       reliable dedup.</li>
  *   <li><b>No conversation id, strict mode</b> → fail fast, demanding a conversation id.</li>
- *   <li><b>No conversation id, lenient (default)</b> → {@code dsa-h-<sha256>} over a canonical
- *       serialization of the request. Preserves zero-config durability; a stateless retry that
- *       resends identical content reattaches.</li>
+ *   <li><b>No conversation id, lenient (default)</b> → {@code dsa-h-<sha256>} over the same canonical
+ *       serialization. Preserves zero-config durability; a stateless retry that resends identical
+ *       content reattaches.</li>
  * </ol>
+ *
+ * <p><b>Drift from Dapr Agents.</b> Dapr Agents (Python) schedules every run under a random
+ * {@code uuid.uuid4().hex} instance id unless the caller supplies one, and keeps conversation
+ * continuity in an external memory store — it does not dedup or reattach by id, so a reissued run
+ * simply starts a fresh workflow. This library instead derives the instance id deterministically from
+ * the request, so a reissue reattaches to the in-flight/completed workflow rather than duplicating it
+ * (no re-executed LLM calls or tool side effects). The trade-off is the caveat above: deterministic
+ * reattach needs deterministic request content, whereas random ids are immune to content but give no
+ * dedup.
  *
  * <p>Stateless and thread-safe.
  */
@@ -42,6 +54,9 @@ public final class InstanceIdDerivation {
 
   static final String CONVERSATION_PREFIX = "dsa-c-";
   static final String HASH_PREFIX = "dsa-h-";
+
+  /** Hex length of the content hash appended to a conversation-keyed id (32 bits — namespaced per id). */
+  static final int SHORT_HASH_LENGTH = 8;
 
   /** Warn at most once per JVM that durability is running on the content-hash fallback. */
   private static final AtomicBoolean HASH_FALLBACK_WARNED = new AtomicBoolean(false);
@@ -77,10 +92,11 @@ public final class InstanceIdDerivation {
   public String deriveInstanceId(AgentRequest request) {
     String conversationId = request.conversationId();
     if (conversationId != null && !conversationId.isBlank()) {
-      String base = CONVERSATION_PREFIX + sanitize(conversationId);
-      int turn = conversationTurn(request);
-      // First turn (0) is just the conversation id; later turns get ":<turn>".
-      return turn == 0 ? base : base + ":" + turn;
+      // dsa-c-<conversationId>-<hash8>: the conversation id groups the turns for readability; the
+      // content hash distinguishes each turn and makes an identical reissue reattach. Keying on
+      // content (not a reply count) is robust to ChatMemory window eviction — see the class javadoc.
+      String contentHash = toHex(sha256(canonicalBytes(request))).substring(0, SHORT_HASH_LENGTH);
+      return CONVERSATION_PREFIX + sanitize(conversationId) + "-" + contentHash;
     }
     if (requireConversationId) {
       throw new IllegalStateException(
@@ -95,24 +111,6 @@ public final class InstanceIdDerivation {
               + "dapr.spring-ai.require-conversation-id=true to enforce it. (Warning shown once.)");
     }
     return HASH_PREFIX + toHex(sha256(canonicalBytes(request)));
-  }
-
-  /**
-   * 0-based conversation turn = completed prior rounds, derived as the number of assistant messages
-   * already in the request. First call → 0 (no suffix); each subsequent turn carries one more prior
-   * assistant reply → 1, 2, … A retry of the same turn resends the same messages → same count → same id.
-   */
-  private static int conversationTurn(AgentRequest request) {
-    if (request.messages() == null) {
-      return 0;
-    }
-    int turn = 0;
-    for (MessageRecord message : request.messages()) {
-      if (message.role() == Role.ASSISTANT) {
-        turn++;
-      }
-    }
-    return turn;
   }
 
   /** Keeps the id to id-like characters; other characters collapse to '_'. */
