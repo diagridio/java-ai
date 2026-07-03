@@ -2,11 +2,13 @@ package io.diagrid.springai.durable.boot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
 import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 
+import io.diagrid.springai.durable.client.DurableCallTimeoutException;
 import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
-import io.diagrid.springai.durable.instance.InstanceIdDerivation;
 import io.diagrid.springai.durable.workflow.AgentRequest;
 import io.diagrid.springai.durable.workflow.AgentResult;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
@@ -57,20 +59,26 @@ class DurableAdvisorToolsTest {
     }
   }
 
-  /** Captures the AgentRequest (and workflow name) the advisor would hand to the workflow. */
+  /** Captures the AgentRequest (and workflow name + instance id) the advisor hands to the workflow. */
   static class CapturingRunner extends DurableRunner {
     AgentRequest captured;
     String capturedWorkflowName;
+    String capturedInstanceId;
     AgentResult result = new AgentResult("FINAL", null, null, null, null, 1);
+    RuntimeException toThrow;
 
     CapturingRunner() {
-      super(null, new InstanceIdDerivation(), Duration.ofSeconds(1));
+      super(null, Duration.ofSeconds(1));
     }
 
     @Override
-    public AgentResult run(AgentRequest request, String workflowName) {
+    public AgentResult run(String instanceId, AgentRequest request, String workflowName) {
       this.captured = request;
       this.capturedWorkflowName = workflowName;
+      this.capturedInstanceId = instanceId;
+      if (toThrow != null) {
+        throw toThrow;
+      }
       return result;
     }
   }
@@ -238,6 +246,102 @@ class DurableAdvisorToolsTest {
     assertEquals(10, usage.getPromptTokens().intValue());
     assertEquals(5, usage.getCompletionTokens().intValue());
     assertEquals(15, usage.getTotalTokens().intValue());
+  }
+
+  /** On success the workflow instance id + name are echoed in both the context and the metadata. */
+  @Test
+  void successEchoesInstanceIdAndWorkflowNameInContextAndMetadata() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor =
+        new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec(), "weatherAssistant");
+
+    ChatClientResponse response = advisor.adviseCall(requestWithTools(), null);
+
+    // The id the advisor generated is what it scheduled under.
+    String instanceId = runner.capturedInstanceId;
+    assertNotEquals(null, instanceId, "advisor must generate an instance id");
+
+    // Context echo.
+    assertEquals(instanceId, response.context().get(DurableAdvisor.INSTANCE_ID_KEY));
+    assertEquals("weatherAssistant", response.context().get(DurableAdvisor.WORKFLOW_NAME_KEY));
+
+    // Metadata echo.
+    assertEquals(
+        instanceId, response.chatResponse().getMetadata().get(DurableAdvisor.INSTANCE_ID_KEY));
+    assertEquals(
+        "weatherAssistant",
+        response.chatResponse().getMetadata().get(DurableAdvisor.WORKFLOW_NAME_KEY));
+  }
+
+  /** A {@link DurableCallTimeoutException} must propagate UNWRAPPED so callers can catch it by type. */
+  @Test
+  void timeoutPropagatesUnwrapped() {
+    CapturingRunner runner = new CapturingRunner();
+    runner.toThrow = new DurableCallTimeoutException("inst-123", "weatherAssistant", null);
+    DurableAdvisor advisor =
+        new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec(), "weatherAssistant");
+
+    DurableCallTimeoutException e =
+        assertThrows(
+            DurableCallTimeoutException.class, () -> advisor.adviseCall(requestWithTools(), null));
+    assertEquals("inst-123", e.instanceId());
+  }
+
+  /** Any other failure is wrapped in an IllegalStateException (not leaked raw). */
+  @Test
+  void otherFailuresAreWrapped() {
+    CapturingRunner runner = new CapturingRunner();
+    runner.toThrow = new RuntimeException("provider exploded");
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    assertThrows(IllegalStateException.class, () -> advisor.adviseCall(requestWithTools(), null));
+  }
+
+  /** Parity regression: two identical back-to-back calls schedule two DIFFERENT instance ids. */
+  @Test
+  void identicalCallsGetDistinctInstanceIds() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    advisor.adviseCall(requestWithTools(), null);
+    String first = runner.capturedInstanceId;
+    advisor.adviseCall(requestWithTools(), null);
+    String second = runner.capturedInstanceId;
+
+    assertNotEquals(first, second, "no dedup: each call is a fresh instance");
+  }
+
+  /** dapr-agents parity ("instance_id or uuid4()"): a caller-supplied id is used verbatim + echoed. */
+  @Test
+  void callerSuppliedInstanceIdIsUsedVerbatim() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    Map<String, Object> context = new HashMap<>();
+    context.put(DurableAdvisor.INSTANCE_ID_KEY, "my-correlation-id");
+    Prompt prompt = new Prompt(List.of(new UserMessage("hi")), ToolCallingChatOptions.builder().build());
+    ChatClientResponse response = advisor.adviseCall(new ChatClientRequest(prompt, context), null);
+
+    assertEquals("my-correlation-id", runner.capturedInstanceId, "caller-supplied id must be scheduled");
+    assertEquals(
+        "my-correlation-id",
+        response.context().get(DurableAdvisor.INSTANCE_ID_KEY),
+        "the effective id is echoed back under the same key");
+  }
+
+  /** A blank caller-supplied id falls back to a generated one (not used verbatim). */
+  @Test
+  void blankCallerSuppliedInstanceIdFallsBackToGenerated() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    Map<String, Object> context = new HashMap<>();
+    context.put(DurableAdvisor.INSTANCE_ID_KEY, "  ");
+    Prompt prompt = new Prompt(List.of(new UserMessage("hi")), ToolCallingChatOptions.builder().build());
+    advisor.adviseCall(new ChatClientRequest(prompt, context), null);
+
+    assertNotEquals("  ", runner.capturedInstanceId, "a blank id must not be used verbatim");
+    assertNotEquals(null, runner.capturedInstanceId, "a fresh id must be generated");
   }
 
   private static CallAdvisor advisorAt(String name, int order) {

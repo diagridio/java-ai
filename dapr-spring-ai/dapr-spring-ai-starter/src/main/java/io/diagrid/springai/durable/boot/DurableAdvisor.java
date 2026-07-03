@@ -1,5 +1,6 @@
 package io.diagrid.springai.durable.boot;
 
+import io.diagrid.springai.durable.client.DurableCallTimeoutException;
 import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
 import io.diagrid.springai.durable.workflow.AgentRequest;
@@ -9,15 +10,15 @@ import io.diagrid.springai.durable.workflow.ChatOptionsSpec;
 import io.diagrid.springai.durable.workflow.TokenUsage;
 import io.diagrid.springai.durable.workflow.ToolSpec;
 import java.util.ArrayList;
-import java.util.HashMap;
 import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
+import java.util.UUID;
 import org.springframework.ai.chat.client.ChatClientRequest;
 import org.springframework.ai.chat.client.ChatClientResponse;
 import org.springframework.ai.chat.client.advisor.ChatModelCallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
 import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
-import org.springframework.ai.chat.memory.ChatMemory;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.metadata.ChatGenerationMetadata;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
@@ -72,6 +73,25 @@ public final class DurableAdvisor implements CallAdvisor {
   /** Base advisor name; per-agent instances append {@code [<workflowName>]}. */
   static final String NAME_PREFIX = "DaprDurableAdvisor";
 
+  /**
+   * The workflow instance id slot — used both ways (dapr-agents' {@code instance_id or uuid4()}):
+   *
+   * <ul>
+   *   <li><b>Input (optional):</b> set it as an advisor param — {@code .advisors(a -> a.param(
+   *       DurableAdvisor.INSTANCE_ID_KEY, "my-id"))} — to schedule this call under an id you choose
+   *       (for your own correlation tracking). Omit it and a random UUID is generated. A supplied id
+   *       must be unique per run: this is not reissue dedup — a duplicate active id is rejected by the
+   *       backend, and a completed one is re-run.</li>
+   *   <li><b>Output (always):</b> the effective id (supplied or generated) is echoed on success into
+   *       {@code ChatClientResponse.context()} and {@code ChatResponse.getMetadata()} under this key,
+   *       to correlate a call to its workflow (e.g. find it in the Diagrid dashboard).</li>
+   * </ul>
+   */
+  public static final String INSTANCE_ID_KEY = "dapr.spring-ai.instance-id";
+
+  /** Context / response-metadata key carrying the workflow name a successful call ran under. */
+  public static final String WORKFLOW_NAME_KEY = "dapr.spring-ai.workflow-name";
+
   private final DurableRunner runner;
   private final DiscoveredTools tools;
   private final MessageCodec codec;
@@ -108,30 +128,51 @@ public final class DurableAdvisor implements CallAdvisor {
   @Override
   public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
     warnIfShadowingOnce(chain);
-    String conversationId = conversationId(request);
     List<ToolSpec> toolSpecs = resolveToolSpecs(request.prompt().getOptions());
     ChatOptionsSpec options = ChatOptionsSpec.from(request.prompt().getOptions());
 
     AgentRequest agentRequest =
-        new AgentRequest(
-            codec.toRecords(request.prompt().getInstructions()), toolSpecs, options, conversationId);
+        new AgentRequest(codec.toRecords(request.prompt().getInstructions()), toolSpecs, options);
+
+    // dapr-agents parity ("instance_id or uuid4()"): use a caller-supplied id if one is set on the
+    // request context, else a fresh random UUID — no dedup, no derivation. The id is echoed on
+    // success and carried on the typed timeout so a lost result can be collected later by id.
+    String instanceId = resolveInstanceId(request);
 
     AgentResult result;
     try {
-      result = runner.run(agentRequest, workflowName);
-    } catch (Exception e) {
+      result = runner.run(instanceId, agentRequest, workflowName);
+    } catch (DurableCallTimeoutException e) {
+      // Not a failure — the workflow is still running. Propagate UNWRAPPED so callers can catch it by
+      // type and read the instance id (for correlation / lookup in Dapr tooling).
+      throw e;
+    } catch (RuntimeException e) {
       throw new IllegalStateException("Durable ChatClient call failed", e);
     }
 
-    return new ChatClientResponse(toChatResponse(result), new HashMap<>(request.context()));
+    // Echo the execution identity both on the response metadata and in the response context.
+    Map<String, Object> context = new LinkedHashMap<>(request.context());
+    context.put(INSTANCE_ID_KEY, instanceId);
+    context.put(WORKFLOW_NAME_KEY, workflowName);
+    return new ChatClientResponse(toChatResponse(result, instanceId, workflowName), context);
+  }
+
+  /** A caller-supplied instance id from the request context ({@link #INSTANCE_ID_KEY}), else a fresh UUID. */
+  private static String resolveInstanceId(ChatClientRequest request) {
+    Object supplied = request.context().get(INSTANCE_ID_KEY);
+    if (supplied != null && !supplied.toString().isBlank()) {
+      return supplied.toString();
+    }
+    return UUID.randomUUID().toString();
   }
 
   /**
    * Rebuilds a Spring AI {@link ChatResponse} from the workflow's {@link AgentResult} so upstream
-   * advisors and user code see real response metadata: the finish reason on the generation, and the
-   * aggregated usage + model + id on the response metadata.
+   * advisors and user code see real response metadata: the finish reason on the generation, the
+   * aggregated usage + model + id on the response metadata, and the durable execution identity
+   * (instance id + workflow name) as metadata key-values.
    */
-  private static ChatResponse toChatResponse(AgentResult result) {
+  private static ChatResponse toChatResponse(AgentResult result, String instanceId, String workflowName) {
     ChatGenerationMetadata generationMetadata =
         result.finishReason() == null
             ? ChatGenerationMetadata.NULL
@@ -139,7 +180,10 @@ public final class DurableAdvisor implements CallAdvisor {
     Generation generation =
         new Generation(new AssistantMessage(result.finalText()), generationMetadata);
 
-    ChatResponseMetadata.Builder metadata = ChatResponseMetadata.builder();
+    ChatResponseMetadata.Builder metadata =
+        ChatResponseMetadata.builder()
+            .keyValue(INSTANCE_ID_KEY, instanceId)
+            .keyValue(WORKFLOW_NAME_KEY, workflowName);
     if (result.model() != null) {
       metadata.model(result.model());
     }
@@ -187,11 +231,6 @@ public final class DurableAdvisor implements CallAdvisor {
       }
     }
     return List.copyOf(byName.values());
-  }
-
-  private static String conversationId(ChatClientRequest request) {
-    Object value = request.context().get(ChatMemory.CONVERSATION_ID);
-    return value == null ? null : value.toString();
   }
 
   @Override

@@ -1,14 +1,12 @@
 package io.diagrid.springai.durable.workflow;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.junit.jupiter.api.Assumptions.assumeTrue;
 
 import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageRecord;
-import io.diagrid.springai.durable.instance.InstanceIdDerivation;
 import io.diagrid.springai.durable.testworker.CrashCoordinator;
 import io.diagrid.springai.durable.testworker.WorkerMain;
 import io.dapr.config.Properties;
@@ -16,8 +14,6 @@ import io.dapr.testcontainers.Component;
 import io.dapr.testcontainers.DaprContainer;
 import io.dapr.testcontainers.DaprLogLevel;
 import io.dapr.workflows.client.DaprWorkflowClient;
-import io.dapr.workflows.client.WorkflowRuntimeStatus;
-import io.dapr.workflows.client.WorkflowState;
 import java.io.IOException;
 import java.net.URI;
 import java.net.http.HttpClient;
@@ -28,11 +24,11 @@ import java.nio.file.Path;
 import java.time.Duration;
 import java.util.List;
 import java.util.Map;
+import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.atomic.AtomicReference;
 import org.junit.jupiter.api.AfterEach;
 import org.junit.jupiter.api.BeforeEach;
-import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Tag;
 import org.junit.jupiter.api.Test;
 import org.testcontainers.containers.Network;
@@ -80,7 +76,7 @@ class CrashRecoveryIT {
     assumeTrue(ollamaReady(), "Ollama not reachable at " + OLLAMA_BASE_URL + "; skipping");
     workflowClient =
         new DaprWorkflowClient(new Properties(Map.of("dapr.grpc.endpoint", DAPR.getGrpcEndpoint())));
-    runner = new DurableRunner(workflowClient, new InstanceIdDerivation(), Duration.ofSeconds(180));
+    runner = new DurableRunner(workflowClient, Duration.ofSeconds(180));
     testDir = Files.createTempDirectory("dsa-crash-it");
     coord = new CrashCoordinator(testDir);
   }
@@ -99,7 +95,11 @@ class CrashRecoveryIT {
 
     Process worker = startWorker(testDir, "baseline");
     try {
-      AgentResult result = runner.run(request("baseline: what is the secret word?"));
+      AgentResult result =
+          runner.run(
+              UUID.randomUUID().toString(),
+              request("baseline: what is the secret word?"),
+              AgentWorkflow.NAME);
       assertTrue(
           result.finalText().contains("BANANA"), "expected secret word in result, got: " + result);
       assertEquals(1, coord.count("toolSideEffect"), "tool side effect should run exactly once");
@@ -114,18 +114,21 @@ class CrashRecoveryIT {
   @Test
   void survivesWorkerCrashBetweenLlmAndTool() throws Exception {
     AgentRequest request = request("what is the secret word?");
+    String instanceId = UUID.randomUUID().toString();
     AtomicReference<AgentResult> result = new AtomicReference<>();
     AtomicReference<Exception> failure = new AtomicReference<>();
 
     // Worker #1 — will be SIGKILLed mid-tool.
     Process worker1 = startWorker(testDir, "crash-1");
 
-    // Drive the durable call on a background thread; it blocks until the workflow completes.
+    // Drive the durable call on a background thread; it blocks until the workflow completes. The one
+    // instance survives the worker crash (durabletask resumes it on a fresh worker) — this is worker-
+    // crash recovery, which does NOT depend on reissue-dedup: it is a single run() of a single id.
     CompletableFuture<Void> driver =
         CompletableFuture.runAsync(
             () -> {
               try {
-                result.set(runner.run(request));
+                result.set(runner.run(instanceId, request, AgentWorkflow.NAME));
               } catch (Exception e) {
                 failure.set(e);
               }
@@ -159,44 +162,6 @@ class CrashRecoveryIT {
       worker2.destroyForcibly();
       worker2.waitFor();
     }
-  }
-
-  @Test
-  void notFoundInstanceReportsRunningButNotRunning() {
-    // Pins the SDK behavior DurableRunner.isAbsent() relies on: an unknown instance comes back
-    // non-null with the proto-default status RUNNING while isRunning()/isCompleted() are false. A
-    // future SDK bump that changed this (e.g. an UNSPECIFIED default) would fail here.
-    WorkflowState state = workflowClient.getWorkflowState("dsa-not-a-real-instance-xyz", true);
-    assertNotNull(state, "getWorkflowState never returns null");
-    assertEquals(WorkflowRuntimeStatus.RUNNING, state.getRuntimeStatus());
-    assertFalse(state.isRunning(), "a not-found instance must not report isRunning()");
-    assertFalse(state.isCompleted(), "a not-found instance must not report isCompleted()");
-  }
-
-  @Test
-  @Disabled(
-      "One-time backend-behavior probe, already answered: scheduling a duplicate active instanceId"
-          + " throws StatusRuntimeException '...an active workflow with ID ... already exists'."
-          + " DurableRunner relies on this (schedule-then-catch-already-exists). Disabled because it"
-          + " schedules with no worker, leaving a PENDING instance that makes the sidecar spin on"
-          + " DaprBuiltInActorNotFoundRetries and pollutes the shared static container.")
-  void duplicateScheduleWithSameInstanceIdBehavior() throws Exception {
-    // Empirically records what the backend does when the same instance id is scheduled twice
-    // (the schedule-then-catch collision path). No worker is running, so neither will execute; we
-    // only observe whether the second schedule throws.
-    AgentRequest request = request("duplicate-id probe");
-    String instanceId = runner.instanceId(request);
-    workflowClient.scheduleNewWorkflow(AgentWorkflow.NAME, request, instanceId);
-
-    String outcome;
-    try {
-      workflowClient.scheduleNewWorkflow(AgentWorkflow.NAME, request, instanceId);
-      outcome = "second schedule SUCCEEDED (backend tolerated duplicate id)";
-    } catch (RuntimeException e) {
-      outcome = "second schedule THREW: " + e.getClass().getName() + ": " + e.getMessage();
-    }
-    System.out.println("[duplicate-id probe] " + outcome);
-    workflowClient.terminateWorkflow(instanceId, null);
   }
 
   private AgentRequest request(String userText) {

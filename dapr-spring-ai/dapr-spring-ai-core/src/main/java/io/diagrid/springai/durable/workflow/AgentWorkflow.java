@@ -32,8 +32,8 @@ import java.util.List;
  * generic name. Which name a given call uses is chosen by the durable advisor attached to that client
  * (see {@code DurableAdvisor} / {@code DurableChatClientBeanPostProcessor}); durabletask requires
  * every name to be registered before scheduling, which the auto-configuration does at startup from
- * the ChatClient bean definitions. Agents/conversations remain distinguished by the <em>instance
- * id</em> (conversation-id keyed) — see {@code InstanceIdDerivation}.
+ * the ChatClient bean definitions. The workflow name is a readable grouping label only; each call
+ * runs under its own fresh random instance id (dapr-agents parity — no dedup by id or content).
  *
  * <p><b>Activity retries.</b> When constructed with a {@link WorkflowTaskOptions} carrying a retry
  * policy, every LLM and tool activity is scheduled with it, so a transient failure (provider rate

@@ -1,7 +1,8 @@
 package io.diagrid.springai.durable.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
-import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
 import static org.junit.jupiter.api.Assertions.assertTrue;
 import static org.mockito.ArgumentMatchers.any;
@@ -18,20 +19,21 @@ import io.dapr.workflows.client.WorkflowFailureDetails;
 import io.dapr.workflows.client.WorkflowRuntimeStatus;
 import io.dapr.workflows.client.WorkflowState;
 import io.diagrid.springai.durable.conversation.MessageRecord;
-import io.diagrid.springai.durable.instance.InstanceIdDerivation;
 import io.diagrid.springai.durable.workflow.AgentRequest;
 import io.diagrid.springai.durable.workflow.AgentResult;
 import io.diagrid.springai.durable.workflow.ChatOptionsSpec;
 import java.time.Duration;
 import java.time.Instant;
 import java.util.List;
+import java.util.concurrent.TimeoutException;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 
 /**
- * Covers the two things that make the probe-then-act loop correct: reading output only from a genuine
- * COMPLETED state, and detecting "absent" so the runner schedules exactly once. The run() branches
- * (schedule-only-when-absent, attach-when-active, FAIL vs RETRY on a failed instance) are driven with
- * a mocked {@link DaprWorkflowClient}.
+ * dapr-agents parity: {@link DurableRunner#run} schedules under the given id, waits, and returns the
+ * output — no probe, no dedup. A wait timeout surfaces as {@link DurableCallTimeoutException} carrying
+ * the id (no in-app collect-by-id). {@link DurableRunner#outputOrThrow} yields output only from a
+ * genuine COMPLETED.
  */
 class DurableRunnerTest {
 
@@ -39,17 +41,16 @@ class DurableRunnerTest {
     return new AgentRequest(List.of(MessageRecord.user("hi")), List.of(), ChatOptionsSpec.empty());
   }
 
-  private static FakeState state(WorkflowRuntimeStatus status, boolean running) {
-    return new FakeState(status, running, null, null);
+  private static AgentResult completed(String text) {
+    return new AgentResult(text, "stop", null, "m", null, 1);
   }
 
   // ---- outputOrThrow: only a genuine COMPLETED yields output ----
 
   @Test
   void completedReturnsOutput() {
-    AgentResult output = new AgentResult("FINAL", "stop", null, "gpt-4o-mini", null, 1);
-    WorkflowState workflowState = new FakeState(WorkflowRuntimeStatus.COMPLETED, false, output, null);
-    assertEquals("FINAL", DurableRunner.outputOrThrow(workflowState, "dsa-c-x-abcd1234").finalText());
+    WorkflowState workflowState = new FakeState(WorkflowRuntimeStatus.COMPLETED, false, completed("FINAL"), null);
+    assertEquals("FINAL", DurableRunner.outputOrThrow(workflowState, "inst-1").finalText());
   }
 
   @Test
@@ -60,11 +61,10 @@ class DurableRunnerTest {
 
     IllegalStateException e =
         assertThrows(
-            IllegalStateException.class,
-            () -> DurableRunner.outputOrThrow(workflowState, "dsa-c-x-abcd1234"));
+            IllegalStateException.class, () -> DurableRunner.outputOrThrow(workflowState, "inst-1"));
     assertTrue(e.getMessage().contains("FAILED"), e.getMessage());
     assertTrue(e.getMessage().contains("provider returned 500"), e.getMessage());
-    assertTrue(e.getMessage().contains("dsa-c-x-abcd1234"), e.getMessage());
+    assertTrue(e.getMessage().contains("inst-1"), e.getMessage());
   }
 
   @Test
@@ -77,101 +77,79 @@ class DurableRunnerTest {
     assertTrue(e.getMessage().contains("no failure details"), e.getMessage());
   }
 
-  // ---- absent / terminal-failure detection ----
+  // ---- run(): schedule under the given id, wait, return ----
 
   @Test
-  void isAbsentDetectsNotFoundStateOnly() {
-    // not found: proto-default RUNNING but isRunning() false (isRunning implies isInstanceFound).
-    assertTrue(DurableRunner.isAbsent(state(WorkflowRuntimeStatus.RUNNING, false)));
-    assertFalse(DurableRunner.isAbsent(state(WorkflowRuntimeStatus.RUNNING, true)), "genuinely running");
-    assertFalse(DurableRunner.isAbsent(state(WorkflowRuntimeStatus.PENDING, false)), "present, pending");
-    assertFalse(DurableRunner.isAbsent(state(WorkflowRuntimeStatus.COMPLETED, false)));
-  }
-
-  @Test
-  void isTerminalFailureMatchesFailedTerminatedCanceledOnly() {
-    assertTrue(DurableRunner.isTerminalFailure(state(WorkflowRuntimeStatus.FAILED, false)));
-    assertTrue(DurableRunner.isTerminalFailure(state(WorkflowRuntimeStatus.TERMINATED, false)));
-    assertTrue(DurableRunner.isTerminalFailure(state(WorkflowRuntimeStatus.CANCELED, false)));
-    assertFalse(DurableRunner.isTerminalFailure(state(WorkflowRuntimeStatus.COMPLETED, false)));
-    assertFalse(DurableRunner.isTerminalFailure(state(WorkflowRuntimeStatus.RUNNING, true)));
-  }
-
-  // ---- run() branches ----
-
-  @Test
-  void absentSchedulesThenReturnsCompletedOutput() throws Exception {
+  void runSchedulesUnderTheGivenIdAndReturnsOutput() throws Exception {
     DaprWorkflowClient client = mock(DaprWorkflowClient.class);
-    AgentResult output = new AgentResult("FINAL", "stop", null, "m", null, 1);
-    when(client.getWorkflowState(anyString(), anyBoolean()))
-        .thenReturn(state(WorkflowRuntimeStatus.RUNNING, false)); // absent
+    when(client.waitForWorkflowCompletion(anyString(), any(), anyBoolean()))
+        .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, completed("FINAL"), null));
+
+    DurableRunner runner = new DurableRunner(client, Duration.ofSeconds(1));
+
+    assertEquals("FINAL", runner.run("inst-42", request(), "wf").finalText());
+    verify(client).scheduleNewWorkflow(eq("wf"), any(), eq("inst-42"));
+  }
+
+  @Test
+  void runNeverProbesStateFirst() throws Exception {
+    // Parity: run() schedules directly — it must not pre-probe (that was the deleted dedup machinery).
+    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
+    when(client.waitForWorkflowCompletion(anyString(), any(), anyBoolean()))
+        .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, completed("FINAL"), null));
+
+    new DurableRunner(client, Duration.ofSeconds(1)).run("inst-1", request(), "wf");
+
+    verify(client, never()).getWorkflowState(anyString(), anyBoolean());
+  }
+
+  @Test
+  void runTimeoutThrowsTypedExceptionCarryingTheId() throws Exception {
+    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
+    when(client.waitForWorkflowCompletion(anyString(), any(), anyBoolean()))
+        .thenThrow(new TimeoutException("waited too long"));
+
+    DurableRunner runner = new DurableRunner(client, Duration.ofSeconds(1));
+
+    DurableCallTimeoutException e =
+        assertThrows(DurableCallTimeoutException.class, () -> runner.run("inst-77", request(), "wf"));
+    assertEquals("inst-77", e.instanceId());
+    assertEquals("wf", e.workflowName());
+    assertTrue(e.getMessage().contains("still running"), e.getMessage());
+  }
+
+  /**
+   * The parity regression guard: two identical back-to-back calls must schedule two DIFFERENT
+   * instances — dedup must not quietly survive. (The id is supplied by the caller; the runner must
+   * schedule exactly the id it is handed, so distinct ids yield distinct schedules.)
+   */
+  @Test
+  void identicalCallsScheduleDistinctInstances() throws Exception {
+    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
+    when(client.waitForWorkflowCompletion(anyString(), any(), anyBoolean()))
+        .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, completed("X"), null));
+
+    DurableRunner runner = new DurableRunner(client, Duration.ofSeconds(1));
+    String idA = java.util.UUID.randomUUID().toString();
+    String idB = java.util.UUID.randomUUID().toString();
+    runner.run(idA, request(), "wf");
+    runner.run(idB, request(), "wf");
+
+    assertNotEquals(idA, idB);
+    ArgumentCaptor<String> ids = ArgumentCaptor.forClass(String.class);
+    verify(client, org.mockito.Mockito.times(2)).scheduleNewWorkflow(eq("wf"), any(), ids.capture());
+    assertNotEquals(ids.getAllValues().get(0), ids.getAllValues().get(1), "no dedup: distinct instances");
+  }
+
+  @Test
+  void runReturnsTheDeserializedOutputInstance() throws Exception {
+    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
+    AgentResult output = completed("FINAL");
     when(client.waitForWorkflowCompletion(anyString(), any(), anyBoolean()))
         .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, output, null));
 
-    DurableRunner runner = new DurableRunner(client, new InstanceIdDerivation(), Duration.ofSeconds(1));
-
-    assertEquals("FINAL", runner.run(request(), "wf").finalText());
-    verify(client).scheduleNewWorkflow(eq("wf"), any(), anyString());
-  }
-
-  @Test
-  void activeInstanceAttachesWithoutScheduling() throws Exception {
-    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
-    AgentResult output = new AgentResult("FINAL", "stop", null, "m", null, 1);
-    when(client.getWorkflowState(anyString(), anyBoolean()))
-        .thenReturn(state(WorkflowRuntimeStatus.RUNNING, true)); // genuinely in-flight
-    when(client.waitForWorkflowCompletion(anyString(), any(), anyBoolean()))
-        .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, output, null));
-
-    DurableRunner runner = new DurableRunner(client, new InstanceIdDerivation(), Duration.ofSeconds(1));
-
-    assertEquals("FINAL", runner.run(request(), "wf").finalText());
-    verify(client, never()).scheduleNewWorkflow(anyString(), any(), anyString());
-  }
-
-  @Test
-  void completedInstanceShortCircuitsWithoutScheduleOrWait() throws Exception {
-    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
-    AgentResult output = new AgentResult("CACHED", "stop", null, "m", null, 1);
-    when(client.getWorkflowState(anyString(), anyBoolean()))
-        .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, output, null));
-
-    DurableRunner runner = new DurableRunner(client, new InstanceIdDerivation(), Duration.ofSeconds(1));
-
-    assertEquals("CACHED", runner.run(request(), "wf").finalText());
-    verify(client, never()).scheduleNewWorkflow(anyString(), any(), anyString());
-    verify(client, never()).waitForWorkflowCompletion(anyString(), any(), anyBoolean());
-  }
-
-  @Test
-  void failedInstanceWithFailPolicyThrowsWithoutRescheduling() throws Exception {
-    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
-    when(client.getWorkflowState(anyString(), anyBoolean()))
-        .thenReturn(new FakeState(WorkflowRuntimeStatus.FAILED, false, null, new FakeFailure("E", "boom")));
-
-    DurableRunner runner =
-        new DurableRunner(
-            client, new InstanceIdDerivation(), Duration.ofSeconds(1), FailedInstancePolicy.FAIL);
-
-    assertThrows(IllegalStateException.class, () -> runner.run(request(), "wf"));
-    verify(client, never()).scheduleNewWorkflow(anyString(), any(), anyString());
-  }
-
-  @Test
-  void failedInstanceWithRetryPolicyReschedules() throws Exception {
-    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
-    AgentResult output = new AgentResult("RETRIED", "stop", null, "m", null, 1);
-    when(client.getWorkflowState(anyString(), anyBoolean()))
-        .thenReturn(new FakeState(WorkflowRuntimeStatus.FAILED, false, null, new FakeFailure("E", "boom")));
-    when(client.waitForWorkflowCompletion(anyString(), any(), anyBoolean()))
-        .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, output, null));
-
-    DurableRunner runner =
-        new DurableRunner(
-            client, new InstanceIdDerivation(), Duration.ofSeconds(1), FailedInstancePolicy.RETRY);
-
-    assertEquals("RETRIED", runner.run(request(), "wf").finalText());
-    verify(client).scheduleNewWorkflow(eq("wf"), any(), anyString());
+    AgentResult returned = new DurableRunner(client, Duration.ofSeconds(1)).run("i", request(), "wf");
+    assertSame(output, returned);
   }
 
   /** Minimal {@link WorkflowState}: status, isRunning, output, and failure carry meaning. */
@@ -183,7 +161,12 @@ class DurableRunnerTest {
     @Override public WorkflowFailureDetails getFailureDetails() { return failure; }
     @SuppressWarnings("unchecked")
     @Override public <T> T readOutputAs(Class<T> type) { return (T) output; }
-    @Override public boolean isCompleted() { return status == WorkflowRuntimeStatus.COMPLETED; }
+    @Override public boolean isCompleted() {
+      return status == WorkflowRuntimeStatus.COMPLETED
+          || status == WorkflowRuntimeStatus.FAILED
+          || status == WorkflowRuntimeStatus.TERMINATED
+          || status == WorkflowRuntimeStatus.CANCELED;
+    }
     @Override public String getSerializedOutput() { return null; }
     @Override public String getName() { return "test"; }
     @Override public String getWorkflowId() { return "test"; }

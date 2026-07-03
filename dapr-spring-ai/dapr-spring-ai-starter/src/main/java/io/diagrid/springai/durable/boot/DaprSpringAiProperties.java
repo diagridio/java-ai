@@ -2,7 +2,6 @@ package io.diagrid.springai.durable.boot;
 
 import io.dapr.workflows.WorkflowTaskOptions;
 import io.dapr.workflows.WorkflowTaskRetryPolicy;
-import io.diagrid.springai.durable.client.FailedInstancePolicy;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import java.time.Duration;
 import org.springframework.boot.context.properties.ConfigurationProperties;
@@ -10,40 +9,27 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
 /**
  * Configuration for the durable Spring AI integration.
  *
- * @param enabled               whether to make ChatClient calls durable (default true)
- * @param requireConversationId strict mode: fail a call that has no conversation id instead of
- *                              falling back to a content-hash durability key (default false)
- * @param completionTimeout     how long a call blocks waiting for its workflow to complete
- * @param retry                 retry policy applied to the LLM and tool activities
- * @param failedInstancePolicy  what a reissue does when its id maps to a terminally-failed workflow:
- *                              {@code FAIL} (default, surface the failure) or {@code RETRY} (recreate)
- * @param maxIterations         hard cap on LLM turns per call; the workflow fails if the model still
- *                              requests tools past it (default {@value AgentWorkflow#DEFAULT_MAX_ITERATIONS})
+ * @param enabled           whether to make ChatClient calls durable (default true)
+ * @param completionTimeout how long a call blocks waiting for its workflow to complete before a
+ *                          {@code DurableCallTimeoutException} is thrown (the workflow keeps running
+ *                          and is inspectable via Dapr tooling using the instance id)
+ * @param retry             retry policy applied to the LLM and tool activities
+ * @param maxIterations     hard cap on LLM turns per call; the workflow fails if the model still
+ *                          requests tools past it (default {@value AgentWorkflow#DEFAULT_MAX_ITERATIONS})
  */
 @ConfigurationProperties("dapr.spring-ai")
 public record DaprSpringAiProperties(
-    Boolean enabled,
-    Boolean requireConversationId,
-    Duration completionTimeout,
-    Retry retry,
-    FailedInstancePolicy failedInstancePolicy,
-    Integer maxIterations) {
+    Boolean enabled, Duration completionTimeout, Retry retry, Integer maxIterations) {
 
   public DaprSpringAiProperties {
     if (enabled == null) {
       enabled = true;
-    }
-    if (requireConversationId == null) {
-      requireConversationId = false;
     }
     if (completionTimeout == null) {
       completionTimeout = Duration.ofMinutes(5);
     }
     if (retry == null) {
       retry = new Retry(null, null, null, null, null);
-    }
-    if (failedInstancePolicy == null) {
-      failedInstancePolicy = FailedInstancePolicy.FAIL;
     }
     if (maxIterations == null) {
       maxIterations = AgentWorkflow.DEFAULT_MAX_ITERATIONS;

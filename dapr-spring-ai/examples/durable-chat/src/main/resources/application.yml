@@ -16,7 +16,6 @@ spring:
 dapr:
   spring-ai:
     enabled: true
-    require-conversation-id: false
     completion-timeout: 5m
 
 logging:

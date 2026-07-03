@@ -2,7 +2,6 @@ package io.diagrid.springai.durable.boot;
 
 import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
-import io.diagrid.springai.durable.instance.InstanceIdDerivation;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.diagrid.springai.durable.workflow.ChatOptionsFactory;
 import io.diagrid.springai.durable.workflow.LlmInvokeActivity;
@@ -52,16 +51,8 @@ public class DaprSpringAiAutoConfiguration {
 
   @Bean
   @ConditionalOnMissingBean
-  public InstanceIdDerivation instanceIdDerivation(DaprSpringAiProperties properties) {
-    return new InstanceIdDerivation(properties.requireConversationId());
-  }
-
-  @Bean
-  @ConditionalOnMissingBean
-  public DurableRunner durableRunner(
-      DaprWorkflowClient client, InstanceIdDerivation idDerivation, DaprSpringAiProperties properties) {
-    return new DurableRunner(
-        client, idDerivation, properties.completionTimeout(), properties.failedInstancePolicy());
+  public DurableRunner durableRunner(DaprWorkflowClient client, DaprSpringAiProperties properties) {
+    return new DurableRunner(client, properties.completionTimeout());
   }
 
   @Bean

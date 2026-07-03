@@ -47,9 +47,10 @@ cat bookings.log
 ```
 
 Every call ran as a Dapr Workflow: the model call and the `bookFlight` tool each executed as a
-checkpointed activity. Re-issue the **same** request (same `conversationId`, same message) and it
-re-attaches to the existing workflow and returns the original result instead of booking again —
-`bookings.log` stays at one line.
+checkpointed activity. That checkpointing is what survives a mid-flight worker crash (next section) —
+a completed step is never re-run on recovery. Note there is **no** reissue dedup (dapr-agents parity):
+re-issue the same request and it starts a *new* workflow and books *again* (`bookings.log` gets a
+second line). Making a re-submit idempotent is the tool's job, via the activity `taskExecutionId`.
 
 ## Test durability across a crash
 
@@ -83,7 +84,9 @@ To prove crash recovery you need the sidecar to outlive the app, so run them sep
 
 - `dapr-spring-ai-starter` auto-configures a `DurableAdvisor` (added to every `ChatClient`) and an
   in-process Dapr Workflow worker.
-- The advisor turns each `ChatClient.call()` into a workflow keyed by `conversationId + turn`
-  (or a content hash when no `conversationId` is set).
+- The advisor turns each `ChatClient.call()` into a workflow under a fresh random instance id
+  (dapr-agents parity — no dedup; a retried call is a new execution). If a call's wait budget
+  elapses it throws `DurableCallTimeoutException` with the instance id, so the still-running result
+  can be collected later by id.
 - The workflow runs the model call and each tool call as separate activities, so a crash resumes
   from the last completed step. Your `@Tool` beans are discovered and dispatched automatically.

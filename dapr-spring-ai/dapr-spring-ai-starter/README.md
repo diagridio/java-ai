@@ -5,8 +5,8 @@ Dapr Workflow — put it on the classpath, no other code required.
 
 For *how* the durable advisor attaches (and the "must build from the Spring-managed
 `ChatClient.Builder`" rule) and the durability model, see the
-[project README](../../README.md) — especially the **Wiring** and **Durability key** sections. This
-doc is the short cookbook for defining an agent correctly.
+[project README](../../README.md) — especially the **Wiring** and **Execution identity** sections.
+This doc is the short cookbook for defining an agent correctly.
 
 ## Defining a durable agent
 
@@ -63,21 +63,37 @@ tools to a client via `.defaultTools(...)`. The advertised surface is the global
 the client's own tools (client tools win on name collision). So "agent-scoped" and "crash-safe"
 partly trade off today.
 
-### Pass a conversationId
+### Wait-budget timeout
 
-Set `ChatMemory.CONVERSATION_ID` as an advisor param so the workflow instance is keyed by the
-conversation:
+Every call runs under a fresh random workflow instance id (dapr-agents parity — no dedup, no
+content hashing). A call blocks only for `dapr.spring-ai.completion-timeout`; if that elapses the
+workflow keeps running and the call throws `DurableCallTimeoutException` carrying the instance id —
+the timeout is a wait budget, not a failure. There's no in-app way to collect the result afterwards;
+the run is durable and inspectable via the Diagrid dashboard or `dapr workflow` CLI using that id.
+The id (and workflow name) are also echoed on every successful response — in
+`ChatClientResponse.context()` and `ChatResponse.getMetadata()` under `dapr.spring-ai.instance-id` /
+`dapr.spring-ai.workflow-name`, for correlation:
+
+```java
+try {
+  String answer = chat.prompt().user(message).call().content();
+} catch (DurableCallTimeoutException e) {
+  log.warn("still running as {} — look it up in the dashboard", e.instanceId());
+}
+```
+
+To schedule under an id **you** choose (correlation tracking, dapr-agents' `instance_id or uuid4()`),
+set it as an advisor param — it's echoed back under the same key. It must be unique per run (not
+dedup — a duplicate active id is rejected, a completed one re-runs):
 
 ```java
 chat.prompt().user(message)
-    .advisors(a -> a.param(ChatMemory.CONVERSATION_ID, "trip-42"))
+    .advisors(a -> a.param(DurableAdvisor.INSTANCE_ID_KEY, myId))
     .call().content();
 ```
 
-The instance id is then `dsa-c-trip-42-<hash8>` — the conversation id namespaces a short content hash
-of the request, so an identical reissue of a turn reattaches. Without a conversationId it falls back
-to `dsa-h-<sha256>` (the same hash, un-namespaced). Both key on content; see the root README's
-**Durability key** for the determinism caveat they share.
+> `ChatMemory.CONVERSATION_ID` is unrelated to durability — it is purely Spring AI's chat-memory
+> grouping key (see the `dapr-spring-ai-memory` starter). It does not affect the workflow instance id.
 
 ### Registering an inline (non-bean) agent
 

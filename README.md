@@ -75,39 +75,70 @@ one-time WARN naming any stranded advisors it finds. Request-observing advisors
 
 See **[`dapr-spring-ai-starter/README.md`](dapr-spring-ai/dapr-spring-ai-starter/README.md)** for a
 short cookbook on defining agents — the two shapes (`@Component` vs `@Bean`), the hybrid pattern,
-tool crash-safety, and passing a conversationId.
+tool crash-safety, and the wait-budget timeout behaviour.
 
-## Durability key (demo vs production)
+## Execution identity (dapr-agents parity)
 
-Each call runs as a workflow identified by a deterministic **instance id** —
-that id is what lets a reissued call reattach to an in-flight or completed
-workflow instead of starting (and double-executing) a new one. It is a pure
-function of the request, resolved two ways:
+Every `ChatClient.call()` on the durable path schedules a **new** workflow
+instance under a fresh `UUID.randomUUID()` — the same execution model as Dapr
+Agents (Python), which schedules each run under a random uuid. There is **no**
+dedup, no content hashing, and no reattach-by-content: a retried or duplicated
+call is a new execution.
 
-- **With a conversation id** (`ChatMemory.CONVERSATION_ID` set on the call) →
-  `dsa-c-<conversationId>-<hash8>`: a short content hash of the request,
-  namespaced by the conversation so a dashboard can group a conversation's turns
-  and hash collisions stay scoped to one conversation. **Recommended for
-  production** — set a conversation id and, optionally,
-  `dapr.spring-ai.require-conversation-id=true` so a call without one fails fast.
-- **Without one** → `dsa-h-<hash>`: the same content hash over the whole request,
-  un-namespaced. Zero-config, so demos "just work"; the library logs a one-time
-  `WARN` the first time it falls back.
+**What durability still guarantees**
 
-Both paths key on **content**, so both share one caveat: non-deterministic prompt
-content (reordered RAG chunks, an injected timestamp) changes the hash and
-defeats reattach. For reliable dedup, keep a given turn's seed prompt
-deterministic. (An earlier design keyed the conversation path on a turn *count*
-to sidestep this, but Spring AI's `MessageWindowChatMemory` evicts old messages,
-making any count non-monotonic — two turns could collide on the same count and
-return a stale answer — so the key is content-based.)
+- **Crash resume.** An in-flight workflow resumes from its history after a worker
+  restart; completed activities (finished LLM turns, completed tool calls) are
+  never re-executed. This is the core guarantee and is unchanged.
 
-> **Drift from Dapr Agents.** Dapr Agents schedules each run under a random
-> `uuid.uuid4().hex` (unless you pass one) and relies on its external memory store
-> for continuity — a reissue starts a fresh workflow, with no dedup. This library
-> derives the id from the request instead, so a reissue reattaches and never
-> re-runs completed LLM calls or tool side effects. The cost is the caveat above;
-> random ids avoid it but give no reattach.
+**What it deliberately does not do**
+
+- **Reissue dedup.** If a client retries a call (a double-clicked submit, a
+  network retry), it starts a *second* workflow — both run. Idempotency of
+  retried side effects is the **tool author's** concern: make tool activities
+  idempotent using the per-execution `taskExecutionId` handed to each tool
+  activity (see `ToolInvokeActivity`). That hook is now the whole idempotency
+  story.
+
+**On a wait-budget timeout.** A call blocks only for
+`dapr.spring-ai.completion-timeout`. If that elapses the workflow keeps running
+and the call throws a `DurableCallTimeoutException` carrying the instance id — the
+timeout is a *wait budget*, not a failure. The library does **not** offer an
+in-app way to collect the result afterwards; the run is still durable and can be
+inspected (and its output read) via the **Diagrid dashboard** or the
+`dapr workflow` CLI using that id. The instance id and workflow name are also
+echoed on every **successful** response, in `ChatClientResponse.context()` and
+`ChatResponse.getMetadata()` under the keys `dapr.spring-ai.instance-id` /
+`dapr.spring-ai.workflow-name`, for correlation:
+
+```java
+try {
+  String answer = chatClient.prompt().user(msg).call().content();
+} catch (DurableCallTimeoutException e) {
+  log.warn("still running as {} — look it up in the dashboard", e.instanceId());
+}
+```
+
+**Choosing your own instance id (optional).** Like Dapr Agents' `instance_id or
+uuid4()`, you can schedule a call under an id you choose — for your own
+correlation — by setting it as an advisor param; omit it and a random UUID is
+generated. It is echoed back on the response under the same key. A supplied id
+must be unique per run (this is not reissue dedup — a duplicate active id is
+rejected by the backend, a completed one re-runs):
+
+```java
+chatClient.prompt().user(msg)
+    .advisors(a -> a.param(DurableAdvisor.INSTANCE_ID_KEY, myId))
+    .call().content();
+```
+
+> **Consistency with Dapr Agents.** This is the same execution-identity contract
+> as Dapr Agents: a fresh instance id per run (or a caller-supplied one), and no
+> reissue dedup. An earlier design derived the instance id deterministically from
+> the request to dedup reissues; that drift was removed by a team decision so the
+> Spring AI and Python experiences match. (We intentionally keep the surface
+> smaller than dapr-agents in one spot: no in-app collect-by-instance-id — a
+> timed-out result is recovered through Dapr tooling, not an API call.)
 
 ### Configuration
 
@@ -117,15 +148,12 @@ have their own tables in the sections below):
 | Property | Default | Meaning |
 |----------|---------|---------|
 | `dapr.spring-ai.enabled` | `true` | make `ChatClient` calls durable at all |
-| `dapr.spring-ai.require-conversation-id` | `false` | strict mode: fail a call with no conversation id instead of falling back to the content-hash key |
-| `dapr.spring-ai.completion-timeout` | `5m` | how long a call blocks on its workflow; if it elapses the workflow keeps running and a reissue reattaches, so no work is lost |
-| `dapr.spring-ai.failed-instance-policy` | `fail` | reissue onto a **failed/terminated** run: `fail` surfaces the recorded failure (a deterministically-failing request isn't re-run every reissue); `retry` recreates it under the same id |
+| `dapr.spring-ai.completion-timeout` | `5m` | how long a call blocks on its workflow; if it elapses the call throws `DurableCallTimeoutException` while the workflow keeps running — inspect/recover it via Dapr tooling using the instance id (see above) |
 | `dapr.spring-ai.max-iterations` | `20` | hard cap on LLM turns per call; the workflow fails if the model still requests tools past it (guards against a runaway tool loop — stock Spring AI's loop is unbounded) |
 
-A reissue onto a **completed** run returns the recorded result (no re-execution),
-and the runner **only schedules when no instance exists yet** — a reissue that
-lands on an in-flight run just attaches and waits (never re-schedules), which is
-what keeps duplicate reissues from double-running an agent.
+Each call runs under its own fresh instance id, so there is nothing to configure
+about dedup — there is none (dapr-agents parity). A retry is a new execution;
+make tool side effects idempotent (see the `taskExecutionId` note above).
 
 ## Workflow names: per agent, one orchestrator
 
@@ -141,9 +169,9 @@ the Diagrid dashboard correlate an agent to its workflows.
 This stays zero-code: the names come from your bean names, discovered at startup
 (durabletask requires every workflow name to be registered before it can be
 scheduled, which the auto-configuration does from the ChatClient bean
-definitions). Dedup/reattach is unchanged — **agents/conversations are still
-distinguished by the instance id** (the conversation-keyed id above), not the
-workflow name.
+definitions). The workflow name is a readable grouping label only — **each call
+still runs under its own fresh random instance id** (no dedup by id or content),
+so the name never affects execution identity.
 
 ## Tools and crash recovery
 
@@ -332,8 +360,8 @@ Notes:
   would fabricate a false history, so a conflict is treated as a usage error
   (double-submit, missing sticky routing, two agents sharing an id). This is
   deliberately fail-loud, unlike the registry's best-effort log-and-swallow —
-  memory is user data. Failing is cheap: the durable layer means a reissued turn
-  reattaches to the completed workflow (no LLM re-run) and re-saves against the
+  memory is user data. The caller handles a rejected save by retrying the turn
+  (a fresh durable execution — there is no reissue dedup), which re-reads the
   now-current etag. The etag guards every turn after the first; a first write has
   no etag yet, so two *simultaneous first turns* on a brand-new conversation id can
   still race (store-dependent).
@@ -356,8 +384,9 @@ Notes:
   its workflow completes (the call is synchronous by contract). On Java 21 with
   `spring.threads.virtual.enabled=true`, that wait parks a *virtual* thread — nearly free — so the
   blocking model scales. Pair it with a generous `dapr.spring-ai.completion-timeout` for slow calls;
-  the timeout is only a wait budget — the workflow keeps running past it and a re-issued call
-  reattaches, so no work is lost. (Java 25 runs fine too, but build the library on 17/21 — some
+  the timeout is only a wait budget — the workflow keeps running past it, and the call throws
+  `DurableCallTimeoutException` carrying the instance id so the result can be collected later by id,
+  so no work is lost. (Java 25 runs fine too, but build the library on 17/21 — some
   static-analysis tooling misbehaves on 25.)
 - Maven
 - A Dapr sidecar (workflow building block enabled)

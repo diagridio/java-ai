@@ -35,9 +35,9 @@ import org.springframework.ai.chat.messages.MessageType;
  * fail-loud posture is intentional and differs from the registry module's log-and-swallow posture:
  * chat memory is <i>user data</i>, whereas the registry is best-effort metadata.
  *
- * <p>Failing the save is cheap by design: the LLM work is protected by the durable layer, so a
- * reissued turn derives the same content-hash instance id, reattaches to the completed workflow
- * without re-running anything, and re-attempts the save against the now-current etag.
+ * <p>A rejected save is meant to be handled by retrying the turn. Note the durable layer offers no
+ * reissue dedup (dapr-agents parity): a retried turn is a fresh workflow execution, which re-reads
+ * the now-current etag and re-attempts the save.
  *
  * <p><b>First-turn caveat.</b> The etag guards the update path fully. The very first write for a
  * conversation has no etag yet; it is sent with {@link StateOptions.Concurrency#FIRST_WRITE}, but the

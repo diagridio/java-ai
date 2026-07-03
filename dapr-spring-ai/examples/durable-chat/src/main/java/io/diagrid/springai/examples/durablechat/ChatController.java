@@ -10,8 +10,8 @@ import org.springframework.web.bind.annotation.RestController;
  * Ordinary Spring AI usage — no durability code. Because the dapr-spring-ai starter is on the
  * classpath, every {@code chatClient...call()} below runs as a Dapr Workflow and survives a restart.
  *
- * <p>Pass a {@code conversationId} to use it as the durability key (turns within it are
- * distinguished by message count); omit it and the call falls back to a content-hash key.
+ * <p>Every call runs under a fresh workflow instance id (dapr-agents parity — no dedup). The optional
+ * {@code conversationId} is Spring AI's chat-memory grouping key, not a durability input.
  */
 @RestController
 public class ChatController {
