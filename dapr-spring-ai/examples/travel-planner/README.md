@@ -151,29 +151,38 @@ Dapr-state-backed under the `memory` profile), and each request carries a `conve
 `ChatMemory.CONVERSATION_ID`:
 
 ```
-GET /chat?conversationId=<id>&message=<text>
+GET /chat?message=<text>[&conversationId=<id>]
 ```
 
+- `conversationId` is **optional**: omit it and the server assigns a fresh one. Either way the
+  effective id is returned in the **`X-Conversation-Id`** response header, so a client can capture
+  it and reuse it on the next turn without hard-coding one.
 - Requests with the **same** `conversationId` share history — the concierge recalls what you told
   it earlier (destination, interests, dates) instead of asking again.
 - **Different** `conversationId`s are isolated.
 
+> `conversationId` is chat-memory grouping only — **not** the durability key. Every call still runs
+> under its own random workflow instance id (dapr-agents parity).
+
 ```bash
-# turn 1 — set context
-curl -G localhost:8080/chat --data-urlencode conversationId=alice \
-  --data-urlencode "message=I am planning a 4-day trip to Tokyo and I love food and tech."
-# turn 2 — recalls "Tokyo" without being told again
-curl -G localhost:8080/chat --data-urlencode conversationId=alice \
+# turn 1 — no conversationId: the server assigns one; grab it from the response header
+cid=$(curl -sS -D - -o /dev/null -G localhost:8080/chat \
+  --data-urlencode "message=I am planning a 4-day trip to Tokyo and I love food and tech." \
+  | awk 'tolower($1)=="x-conversation-id:"{print $2}' | tr -d '\r')
+# turn 2 — reuse it: recalls "Tokyo" without being told again
+curl -G localhost:8080/chat --data-urlencode "conversationId=$cid" \
   --data-urlencode "message=What is the weather like there?"
-# different conversation — no memory of alice's trip
+# different conversation — no memory of the first trip
 curl -G localhost:8080/chat --data-urlencode conversationId=bob \
   --data-urlencode "message=Where am I going on my trip?"
 ```
 
-`make test-chat` runs the 3-turn recall flow; `make test-chat-isolated` shows the isolation.
-Without a profile the history is in-process; under the `memory` profile the `dapr-spring-ai-memory`
-starter backs `ChatMemory` with a Dapr state store (`agent-memory`), so conversations persist and
-survive restarts — inspect them with `make memory-list`.
+`make test-chat` runs the 3-turn recall flow — turn 1 omits `conversationId`, captures the
+server-assigned id from the `X-Conversation-Id` header into `.last-conversation-id`, and reuses it
+for turns 2–3; `make test-chat-isolated` shows the isolation. Without a profile the history is
+in-process; under the `memory` profile the `dapr-spring-ai-memory` starter backs `ChatMemory` with a
+Dapr state store (`agent-memory`), so conversations persist and survive restarts — inspect them with
+`make memory-list`.
 
 ## LLM Provider Configuration
 

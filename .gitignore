@@ -19,3 +19,6 @@ target/
 
 # Logs
 *.log
+
+# Example scratch files (captured conversationId, etc.)
+.last-conversation-id

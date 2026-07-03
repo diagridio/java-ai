@@ -59,18 +59,22 @@ test-route-long:
 test-travel:
 	curl -s "http://localhost:8080/travel/plan?origin=NYC&destination=Paris&date=2025-07-01&nights=5&interests=history,food"
 
-## Conversation-memory demo: a 3-turn chat keyed by conversationId=alice.
-## Turns 2 and 3 rely on memory of the destination/interests set in turn 1.
+## Conversation-memory demo: a 3-turn chat. Turn 1 omits conversationId, so the server assigns one
+## and returns it in the X-Conversation-Id header; we capture it into .last-conversation-id and reuse
+## it for turns 2 and 3, which rely on memory of the destination/interests set in turn 1.
+CID_FILE = .last-conversation-id
 test-chat:
-	@echo "— turn 1 (alice): set context —"
-	@curl -s -G "http://localhost:8080/chat" --data-urlencode "conversationId=alice" --data-urlencode "message=I am planning a 4-day trip to Tokyo and I love food and tech."; echo
-	@echo "— turn 2 (alice): should recall Tokyo —"
-	@curl -s -G "http://localhost:8080/chat" --data-urlencode "conversationId=alice" --data-urlencode "message=What is the weather like there?"; echo
-	@echo "— turn 3 (alice): should recall Tokyo + interests —"
-	@curl -s -G "http://localhost:8080/chat" --data-urlencode "conversationId=alice" --data-urlencode "message=What should I do?"; echo
+	@echo "— turn 1 (new conversation): set context —"
+	@curl -s -D /tmp/tp-chat-headers -G "http://localhost:8080/chat" --data-urlencode "message=I am planning a 4-day trip to Tokyo and I love food and tech."; echo
+	@grep -i '^X-Conversation-Id:' /tmp/tp-chat-headers | awk '{print $$2}' | tr -d '\r' > $(CID_FILE)
+	@echo "  (server assigned conversationId=$$(cat $(CID_FILE)) → saved to $(CID_FILE))"
+	@echo "— turn 2 (same conversation): should recall Tokyo —"
+	@curl -s -G "http://localhost:8080/chat" --data-urlencode "conversationId=$$(cat $(CID_FILE))" --data-urlencode "message=What is the weather like there?"; echo
+	@echo "— turn 3 (same conversation): should recall Tokyo + interests —"
+	@curl -s -G "http://localhost:8080/chat" --data-urlencode "conversationId=$$(cat $(CID_FILE))" --data-urlencode "message=What should I do?"; echo
 
-## Isolation: a different conversationId has no memory of alice's trip. Override the prompt with
-## MSG="..." (e.g. make test-chat-isolated MSG="What's my name?").
+## Isolation: a different conversationId ("bob") has no memory of the saved conversation's trip.
+## Override the prompt with MSG="..." (e.g. make test-chat-isolated MSG="What's my name?").
 test-chat-isolated:
 	@curl -s -G "http://localhost:8080/chat" --data-urlencode "conversationId=bob" --data-urlencode "message=$(MSG)"; echo
 
@@ -107,7 +111,7 @@ registry-list:
 	@docker exec dapr_redis redis-cli KEYS '*agents*'
 
 ## Show the persisted chat-memory conversations, stored in the agent-memory store in Dapr Agents
-## key format {agentName}:_memory_{conversationId} (e.g. default:_memory_alice) — matching on the
+## key format {agentName}:_memory_{conversationId} (e.g. default:_memory_<id>) — matching on the
 ## _memory_ marker excludes the workflow state keys, which embed the same conversationId. Survives
 ## restarts. Inspect a record's content with: docker exec dapr_redis redis-cli HGETALL '<key>'.
 memory-list:
