@@ -23,7 +23,7 @@ orchestration is composed at the application layer, mirroring Spring AI's docume
 | Concern | This module |
 |---|---|
 | Agent | `@Component` building a `ChatClient` from the injected `ChatClient.Builder` with `.defaultSystem(<instructions>).defaultTools(<tools>)` (injecting the builder lets the Dapr `DurableAdvisor` attach under the `dapr` profile) |
-| Tools | `@Tool` / `@ToolParam` methods (`org.springframework.ai.tool.annotation.*`); JSON schema auto-generated |
+| Tools | `@Tool` methods; JSON schema auto-generated. **Per-agent** tools are attached via `.defaultTools(new XxxTools())` (request-scoped, shown only on that agent). **Global** tools are `@Tool` `@Component` beans (`CurrencyTools`) — the durability layer offers them to every durable agent and they appear on every agent's registry record |
 | Tool loop | automatic via `ToolCallingAdvisor` (re-enters until the model stops calling tools) |
 | Orchestration | plain-Java composition in `TravelOrchestrationService` (sequential/parallel/loop/conditional/nested) |
 | LLM | OpenAI `gpt-4o-mini` via `spring-ai-starter-model-openai` |
@@ -197,7 +197,7 @@ travel-planner/
 │   └── application-{dapr,memory,registry}.properties   opt-in profiles
 └── src/main/java/io/diagrid/springai/examples/travelplanner/
     ├── TravelPlannerApplication.java
-    ├── tools/              6 @Tool classes (mock data + FlakyApiTools for the retry demo)
+    ├── tools/              7 @Tool classes: 6 request-scoped (mock data + FlakyApiTools) + CurrencyTools (@Component = global, offered to every durable agent)
     ├── agents/             8 ChatClient @Component agents (incl. TravelConcierge, BookingAgent)
     │   └── manual/         manual-wiring agents: ManualDurabilityAgent, ManualRegistryAgent, DurableMemoryConcierge
     ├── registry/           RegistryAgents (ChatClient @Bean agents, discovered by the registry)
