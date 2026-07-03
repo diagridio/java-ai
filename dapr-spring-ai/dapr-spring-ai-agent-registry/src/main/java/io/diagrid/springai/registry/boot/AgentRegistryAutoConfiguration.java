@@ -53,10 +53,14 @@ public class AgentRegistryAutoConfiguration {
   public AgentRecordFactory daprAgentRecordFactory(
       ChatModel chatModel,
       AgentRegistryProperties properties,
-      @Value("${spring.application.name:}") String applicationName) {
+      @Value("${spring.application.name:}") String applicationName,
+      ApplicationContext context) {
     String client = chatModel.getClass().getSimpleName();
     String appId = resolveAppId(properties.appId(), applicationName);
-    return new AgentRecordFactory(appId, client, inferProvider(client), defaultModel(chatModel));
+    // Scan @Tool beans lazily (after startup, so they exist) and only once.
+    return new AgentRecordFactory(
+        appId, client, inferProvider(client), defaultModel(chatModel),
+        () -> GlobalToolCatalog.scan(context));
   }
 
   /** Static so the post-processor does not force early initialization of the config class. */

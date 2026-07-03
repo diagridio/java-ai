@@ -31,7 +31,8 @@ class AgentRegistrarTest {
   private static final String RECORD_KEY = "agents:default:weatherAssistant";
 
   private final AgentRecordFactory factory =
-      new AgentRecordFactory("travel-app", "OllamaChatModel", "ollama", "default-model");
+      new AgentRecordFactory(
+          "travel-app", "OllamaChatModel", "ollama", "default-model", () -> java.util.List.of());
 
   @Test
   @SuppressWarnings({"unchecked", "rawtypes"})

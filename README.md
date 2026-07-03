@@ -286,8 +286,11 @@ annotations, no stack inspection), and it has limits worth knowing:
   (`weatherAssistant`, `itineraryFormatter`).
 - **A single shared `ChatClient` bean is one agent**, even if used for several
   logical roles.
-- **The system prompt and tools are filled on first call**, not at startup — an
-  agent is present from boot but its prompt/tools appear only after it is used.
+- **The system prompt and request-scoped tools are filled on first call**, not at
+  startup — an agent is present from boot but its prompt and per-agent
+  (`.defaultTools(...)`) tools appear only after it is used. A durable agent's
+  global `@Tool` beans, which it advertises to every call, are listed from startup
+  (they're known then); a request-scoped tool wins over a same-named global.
 - **Only `.call()` is covered**, not `.stream()`.
 - A registry write never breaks a call: failures are logged and swallowed.
 
