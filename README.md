@@ -434,4 +434,7 @@ Notes:
 
 ## License
 
-TBD.
+[Business Source License 1.1](LICENSE.md) (Diagrid-modified — same terms as the other
+Diagrid AI SDKs): free for non-production use and for production use by organizations
+under the size thresholds in the Additional Use Grant; converts to Apache License 2.0
+on the Change Date. See [LICENSE.md](LICENSE.md) for the exact terms.
