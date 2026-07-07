@@ -2,14 +2,18 @@ package io.diagrid.springai.durable.boot;
 
 import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
+import io.diagrid.springai.durable.tracing.DurableTracing;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
 import io.diagrid.springai.durable.workflow.ChatOptionsFactory;
 import io.diagrid.springai.durable.workflow.LlmInvokeActivity;
 import io.diagrid.springai.durable.workflow.ToolInvokeActivity;
+import io.dapr.config.Properties;
+import io.dapr.spring.observation.client.ObservationDaprWorkflowClient;
 import io.dapr.workflows.WorkflowTaskOptions;
 import io.dapr.workflows.client.DaprWorkflowClient;
 import io.dapr.workflows.runtime.WorkflowRuntime;
 import io.dapr.workflows.runtime.WorkflowRuntimeBuilder;
+import io.micrometer.observation.ObservationRegistry;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientCustomizer;
 import org.springframework.ai.chat.model.ChatModel;
@@ -45,8 +49,16 @@ public class DaprSpringAiAutoConfiguration {
 
   @Bean
   @ConditionalOnMissingBean
-  public DaprWorkflowClient daprWorkflowClient() {
-    return new DaprWorkflowClient();
+  public DaprWorkflowClient daprWorkflowClient(ObjectProvider<ObservationRegistry> observationRegistry) {
+    // When an ObservationRegistry is present (Boot observability active), use Dapr's observed workflow
+    // client: it wraps scheduling/waiting in Micrometer observations and propagates the caller's trace
+    // context to the sidecar, so the workflow's spans join the caller's trace (one trace, not merely
+    // correlated by instance id). It records nothing until a tracing backend is wired, so it's a safe
+    // default. No ObservationRegistry bean ⇒ the plain no-arg client — unchanged.
+    ObservationRegistry registry = observationRegistry.getIfAvailable();
+    return registry == null
+        ? new DaprWorkflowClient()
+        : new ObservationDaprWorkflowClient(new Properties(), registry);
   }
 
   @Bean
@@ -80,19 +92,22 @@ public class DaprSpringAiAutoConfiguration {
       ChatOptionsFactory optionsFactory,
       DiscoveredTools tools,
       DaprSpringAiProperties properties,
+      ObjectProvider<DurableTracing> tracing,
       ApplicationContext context)
       throws Exception {
     // Retry options and the max-iterations cap are fixed here at startup and shared by every workflow
     // instance (read-only), so they stay constant across replays.
     WorkflowTaskOptions activityOptions = properties.retry().toWorkflowTaskOptions();
     int maxIterations = properties.maxIterations();
+    DurableTracing durableTracing = tracing.getIfAvailable(() -> DurableTracing.NOOP);
     WorkflowRuntimeBuilder builder =
         new WorkflowRuntimeBuilder()
             .registerWorkflow(
                 AgentWorkflow.NAME, new AgentWorkflow(activityOptions, maxIterations), null, null)
             .registerActivity(
-                AgentWorkflow.LLM_ACTIVITY, new LlmInvokeActivity(chatModel, optionsFactory))
-            .registerActivity(AgentWorkflow.TOOL_ACTIVITY, new ToolInvokeActivity(tools.registry()));
+                AgentWorkflow.LLM_ACTIVITY, new LlmInvokeActivity(chatModel, optionsFactory, durableTracing))
+            .registerActivity(
+                AgentWorkflow.TOOL_ACTIVITY, new ToolInvokeActivity(tools.registry(), durableTracing));
     // Register the same orchestrator logic under each ChatClient bean's per-agent workflow name
     // (spring-ai.{bean}.workflow) so calls scheduled under it (see DurableChatClientBeanPostProcessor)
     // resolve. A fresh instance per name avoids any instance-level dedup. Bean names come from the
@@ -108,10 +123,11 @@ public class DaprSpringAiAutoConfiguration {
   }
 
   @Bean
-  public DurableAdvisor daprDurableAdvisor(DurableRunner runner, DiscoveredTools tools) {
+  public DurableAdvisor daprDurableAdvisor(
+      DurableRunner runner, DiscoveredTools tools, ObjectProvider<DurableTracing> tracing) {
     // The advisor reads global specs + request-scoped tools per call, and registers request tool
     // callbacks into the shared registry, so it needs the live DiscoveredTools (not a specs snapshot).
-    return new DurableAdvisor(runner, tools, new MessageCodec());
+    return new DurableAdvisor(runner, tools, new MessageCodec(), tracing.getIfAvailable(() -> DurableTracing.NOOP));
   }
 
   @Bean
@@ -125,7 +141,9 @@ public class DaprSpringAiAutoConfiguration {
    */
   @Bean
   public static DurableChatClientBeanPostProcessor daprDurableChatClientBeanPostProcessor(
-      ObjectProvider<DurableRunner> runner, ObjectProvider<DiscoveredTools> tools) {
-    return new DurableChatClientBeanPostProcessor(runner, tools);
+      ObjectProvider<DurableRunner> runner,
+      ObjectProvider<DiscoveredTools> tools,
+      ObjectProvider<DurableTracing> tracing) {
+    return new DurableChatClientBeanPostProcessor(runner, tools, tracing);
   }
 }

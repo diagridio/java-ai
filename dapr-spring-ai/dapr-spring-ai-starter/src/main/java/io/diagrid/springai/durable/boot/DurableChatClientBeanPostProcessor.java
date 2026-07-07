@@ -2,6 +2,7 @@ package io.diagrid.springai.durable.boot;
 
 import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
+import io.diagrid.springai.durable.tracing.DurableTracing;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.config.BeanPostProcessor;
@@ -25,15 +26,20 @@ public final class DurableChatClientBeanPostProcessor implements BeanPostProcess
 
   private final ObjectProvider<DurableRunner> runner;
   private final ObjectProvider<DiscoveredTools> tools;
+  private final ObjectProvider<DurableTracing> tracing;
 
   /**
-   * @param runner provider for the shared durable runner
-   * @param tools  provider for the shared discovered-tools
+   * @param runner  provider for the shared durable runner
+   * @param tools   provider for the shared discovered-tools
+   * @param tracing provider for the tracing SPI (absent ⇒ {@link DurableTracing#NOOP})
    */
   public DurableChatClientBeanPostProcessor(
-      ObjectProvider<DurableRunner> runner, ObjectProvider<DiscoveredTools> tools) {
+      ObjectProvider<DurableRunner> runner,
+      ObjectProvider<DiscoveredTools> tools,
+      ObjectProvider<DurableTracing> tracing) {
     this.runner = runner;
     this.tools = tools;
+    this.tracing = tracing;
   }
 
   /**
@@ -51,7 +57,12 @@ public final class DurableChatClientBeanPostProcessor implements BeanPostProcess
   public Object postProcessAfterInitialization(Object bean, String beanName) {
     if (bean instanceof ChatClient chatClient) {
       DurableAdvisor advisor =
-          new DurableAdvisor(runner.getObject(), tools.getObject(), new MessageCodec(), workflowName(beanName));
+          new DurableAdvisor(
+              runner.getObject(),
+              tools.getObject(),
+              new MessageCodec(),
+              workflowName(beanName),
+              tracing.getIfAvailable(() -> DurableTracing.NOOP));
       return chatClient.mutate().defaultAdvisors(advisor).build();
     }
     return bean;

@@ -90,6 +90,13 @@ public final class AgentWorkflow implements Workflow {
     return ctx -> {
       AgentRequest request = ctx.getInput(AgentRequest.class);
 
+      // Observability context forwarded to every activity: the instance id + workflow name (from the
+      // orchestrator context) and the caller-captured trace carrier (from the input). All three are
+      // deterministic, so they are constant across replays — the orchestrator forwards data, it never
+      // creates spans (that would re-emit on replay).
+      ActivityTrace trace =
+          new ActivityTrace(ctx.getInstanceId(), ctx.getName(), request.traceContext());
+
       // Seed with the input messages; each turn appends its records (decode-from-history).
       List<MessageRecord> conversation = new ArrayList<>(request.messages());
       ChatOptionsSpec options = request.options();
@@ -97,7 +104,7 @@ public final class AgentWorkflow implements Workflow {
 
       while (true) {
         LlmActivityInput llmInput =
-            new LlmActivityInput(List.copyOf(conversation), request.toolSpecs(), options);
+            new LlmActivityInput(List.copyOf(conversation), request.toolSpecs(), options, trace);
         LlmResult llm = runActivity(ctx, LLM_ACTIVITY, llmInput, LlmResult.class);
         conversation.add(llm.toMessageRecord());
         turns.add(llm);
@@ -120,7 +127,7 @@ public final class AgentWorkflow implements Workflow {
         List<Task<ToolResult>> toolTasks = new ArrayList<>(llm.toolCalls().size());
         for (ToolCallRecord call : llm.toolCalls()) {
           ToolActivityInput toolInput =
-              new ToolActivityInput(call.id(), call.name(), call.arguments());
+              new ToolActivityInput(call.id(), call.name(), call.arguments(), trace);
           toolTasks.add(callActivity(ctx, TOOL_ACTIVITY, toolInput, ToolResult.class));
         }
         List<ToolResult> batch = ctx.allOf(toolTasks).await();

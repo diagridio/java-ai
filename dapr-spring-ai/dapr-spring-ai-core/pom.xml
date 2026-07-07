@@ -58,11 +58,12 @@
       <version>1.20.4</version>
       <scope>test</scope>
     </dependency>
-    <!-- Real logging for the worker JVM and IT (otherwise SLF4J defaults to NOP). -->
+    <!-- Real logging for the worker JVM and IT (otherwise SLF4J defaults to NOP). Logback (not
+         slf4j-simple) because it ships a functional MDC adapter — slf4j-simple's is a no-op, which
+         the activity MDC-correlation tests need. -->
     <dependency>
-      <groupId>org.slf4j</groupId>
-      <artifactId>slf4j-simple</artifactId>
-      <version>2.0.16</version>
+      <groupId>ch.qos.logback</groupId>
+      <artifactId>logback-classic</artifactId>
       <scope>test</scope>
     </dependency>
 

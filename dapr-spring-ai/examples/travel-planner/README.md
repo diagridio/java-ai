@@ -184,6 +184,79 @@ in-process; under the `memory` profile the `dapr-spring-ai-memory` starter backs
 Dapr state store (`agent-memory`), so conversations persist and survive restarts — inspect them with
 `make memory-list`.
 
+## Observability (distributed tracing)
+
+The `dapr-spring-ai` durability layer is instrumented with Micrometer, but it **no-ops** unless the
+app provides a tracing backend — so the base example ships without one. Opt in with the `-Ptracing`
+Maven profile (adds Spring Boot tracing + an OpenTelemetry→OTLP exporter) and the `tracing` Spring
+profile (sampling + OTLP endpoint + MDC log pattern). One request then produces a single trace
+spanning the caller thread and the workflow worker, **plus** the Dapr sidecar's own workflow spans,
+all exported to **Jaeger** over OTLP.
+
+Three terminals:
+
+```bash
+make jaeger          # 1. local Jaeger all-in-one — UI at http://localhost:16686 (OTLP on 4317/4318)
+make dapr-tracing    # 2. Dapr sidecar with tracing → the same Jaeger (--config appconfig-tracing.yaml)
+export OPENAI_API_KEY=sk-...
+make run-dapr-tracing # 3. the app with -Ptracing + profiles dapr,memory,registry,tracing
+```
+
+Then hit any endpoint and open **http://localhost:16686** (pick service `travel-planner-spring-ai-dapr`):
+
+```bash
+make test-travel     # nested plan: parallel flight/hotel/activity research → formatter
+```
+
+You'll see one trace shaped like:
+
+```
+travel.plan                             ← orchestration root span (opened by TravelOrchestrationService)
+ ├─ dapr.springai.durable.call          ← flight agent's ChatClient.call() (parallel branch)
+ │   ├─ dapr.springai.llm.invoke        ← worker thread (a model turn)
+ │   │   └─ chat gpt-4o-mini            ← Spring AI's own gen_ai span, parented for free
+ │   └─ dapr.springai.tool.invoke       ← searchFlights (worker)
+ ├─ dapr.springai.durable.call          ← hotel agent (parallel branch)
+ ├─ dapr.springai.durable.call          ← activity agent (parallel branch)
+ └─ dapr.springai.durable.call          ← itinerary formatter
+```
+
+Each multi-agent endpoint opens a **named root span** (`travel.plan`, `travel.research`, …) in
+`TravelOrchestrationService`, so a whole request is one trace with every agent call nested under it —
+this is more reliable than depending on Boot's servlet HTTP-server span (which is named `http get`,
+not per-route). The activity/`gen_ai` spans nest even though they run on the workflow worker: the
+caller's W3C context rides through the workflow input and is restored activity-side. The Dapr
+sidecar's own workflow-orchestration spans (`StartInstance → orchestration||… → activity||…`) also
+join this trace — see the note below.
+
+Getting the *parallel* branches to join that root takes one more thing: `travelPlanner` fans its
+agents out across a thread pool, so the pool is wrapped with Micrometer's `ContextExecutorService` —
+otherwise the trace context wouldn't cross the thread boundary and each parallel agent call would
+start its own root trace. (An application-layer concern: any code handing agent calls to another
+thread must propagate context; sequential calls nest automatically.)
+
+> **App and sidecar in one trace (needs the observed workflow client).** dapr-spring-ai's starter
+> auto-configures Dapr's `ObservationDaprWorkflowClient` (from `dapr-spring-boot-observation`) whenever
+> an `ObservationRegistry` is present. That client propagates the caller's W3C trace context to the
+> sidecar when scheduling, so the sidecar's `durabletask` spans nest under the app's `travel.plan`
+> trace instead of forming a separate one. Each run still carries the workflow **instance id** (a
+> random UUID, echoed as `dapr.spring-ai.instance-id`) as a fallback correlation key. Requires
+> dapr-sdk-workflows ≥ 1.18 and a sidecar that honors the propagated context.
+>
+> Also note: Boot 4 doesn't derive the OTel `service.name` from `spring.application.name`, so
+> `application-tracing.properties` pins it — without that the app's spans land under
+> `unknown_service:java` instead of `travel-planner-spring-ai-dapr` (the name the sidecar uses).
+
+Two things work regardless of the trace tree:
+
+- **Instance id on the response.** Every successful call echoes `dapr.spring-ai.instance-id` /
+  `dapr.spring-ai.workflow-name` into `ChatResponse.getMetadata()` — the handle you search Jaeger by.
+- **Log correlation.** The activity/model log lines carry the instance id and tool name via MDC
+  (`[instance=…] [tool=…]`), so you can follow one call through the log even with no collector.
+
+Stop the collector with `make jaeger-stop`. Without `-Ptracing` the app has no `Tracer` bean and the
+durable path is a pure no-op (zero overhead) — a live demo of the starter's graceful degradation.
+
 ## LLM Provider Configuration
 
 Configured in `application.properties` (`spring.ai.openai.*`): committed default is OpenAI
@@ -195,15 +268,16 @@ underlying `openai-java` SDK appends `/chat/completions` to the base-url.
 
 ```
 travel-planner/
-├── pom.xml                 Spring Boot 4.0.5 parent, Java 21, spring-ai 2.0.0 + the 3 dapr-spring-ai starters
+├── pom.xml                 Spring Boot 4.0.5 parent, Java 21, spring-ai 2.0.0 + the 3 dapr-spring-ai starters; `-Ptracing` profile
 ├── .sdkmanrc               java=21.0.11-tem, maven=3.9.0
-├── Makefile                run (pure) / run-dapr / run-ollama / test-* / registry-list / memory-list / catalyst-config
+├── Makefile                run (pure) / run-dapr / run-ollama / jaeger / dapr-tracing / run-dapr-tracing / test-* / *-list
 ├── components/             kvstore (workflow actor store) + agent-registry + agent-memory (Redis)
 ├── appconfig.yaml          Dapr Configuration: workflow state-retention policy (Catalyst)
+├── appconfig-tracing.yaml  Dapr Configuration for the tracing demo: sidecar spans → local Jaeger (OTLP)
 ├── travel-planner-dev.yaml Diagrid Catalyst dev-run file (diagrid dev run)
 ├── src/main/resources/
-│   ├── application.properties                          pure defaults (Dapr off) + profile usage
-│   └── application-{dapr,memory,registry}.properties   opt-in profiles
+│   ├── application.properties                                   pure defaults (Dapr off) + profile usage
+│   └── application-{dapr,memory,registry,tracing}.properties    opt-in profiles
 └── src/main/java/io/diagrid/springai/examples/travelplanner/
     ├── TravelPlannerApplication.java
     ├── tools/              7 @Tool classes: 6 request-scoped (mock data + FlakyApiTools) + CurrencyTools (@Component = global, offered to every durable agent)

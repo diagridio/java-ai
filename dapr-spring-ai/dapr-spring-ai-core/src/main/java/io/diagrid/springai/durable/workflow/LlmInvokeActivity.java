@@ -3,7 +3,10 @@ package io.diagrid.springai.durable.workflow;
 import io.diagrid.springai.durable.conversation.ConversationDecoder;
 import io.diagrid.springai.durable.conversation.MessageCodec;
 import io.diagrid.springai.durable.conversation.ToolCallRecord;
+import io.diagrid.springai.durable.tracing.DurableTracing;
 import java.util.List;
+import java.util.Map;
+import org.slf4j.MDC;
 import org.springframework.ai.chat.messages.AssistantMessage;
 import org.springframework.ai.chat.messages.Message;
 import org.springframework.ai.chat.metadata.ChatResponseMetadata;
@@ -27,22 +30,47 @@ import io.dapr.workflows.WorkflowActivityContext;
  * invoked — the loud backstop, since Spring AI 2.0 GA no longer exposes an options flag to disable
  * in-model execution. All Spring AI types are confined to this activity; the workflow only sees
  * records.
+ *
+ * <p>The whole body runs inside a {@link DurableTracing} activity scope (restoring the originating
+ * request's trace context) so Spring AI's own ChatModel (gen_ai) observation parents correctly, and
+ * the instance id is placed in SLF4J MDC for log correlation regardless of any tracing backend.
  */
 public final class LlmInvokeActivity implements WorkflowActivity {
 
   private final ChatModel chatModel;
   private final ChatOptionsFactory optionsFactory;
+  private final DurableTracing tracing;
   private final ConversationDecoder decoder = new ConversationDecoder(new MessageCodec());
 
+  /** Uses {@link DurableTracing#NOOP} — no observability. */
   public LlmInvokeActivity(ChatModel chatModel, ChatOptionsFactory optionsFactory) {
+    this(chatModel, optionsFactory, DurableTracing.NOOP);
+  }
+
+  public LlmInvokeActivity(ChatModel chatModel, ChatOptionsFactory optionsFactory, DurableTracing tracing) {
     this.chatModel = chatModel;
     this.optionsFactory = optionsFactory;
+    this.tracing = tracing;
   }
 
   @Override
   public Object run(WorkflowActivityContext ctx) {
     LlmActivityInput input = ctx.getInput(LlmActivityInput.class);
+    ActivityTrace trace = input.trace();
 
+    String previousInstanceId = MDC.get(DurableTracing.KEY_INSTANCE_ID);
+    if (trace.instanceId() != null) {
+      MDC.put(DurableTracing.KEY_INSTANCE_ID, trace.instanceId());
+    }
+    try {
+      return tracing.runInActivityScope(
+          DurableTracing.LLM_SPAN, trace.traceContext(), attributes(trace), () -> invoke(input));
+    } finally {
+      restore(DurableTracing.KEY_INSTANCE_ID, previousInstanceId);
+    }
+  }
+
+  private LlmResult invoke(LlmActivityInput input) {
     List<Message> messages = decoder.decode(input.conversation());
 
     List<ToolCallback> toolCallbacks =
@@ -73,6 +101,27 @@ public final class LlmInvokeActivity implements WorkflowActivity {
     return new LlmResult(
         assistant.getText(), toolCalls, finishReason,
         promptTokens, completionTokens, totalTokens, model, responseId);
+  }
+
+  // Span attributes: instance id + workflow name, skipping absent values.
+  private static Map<String, String> attributes(ActivityTrace trace) {
+    Map<String, String> attrs = new java.util.LinkedHashMap<>();
+    if (trace.instanceId() != null) {
+      attrs.put(DurableTracing.KEY_INSTANCE_ID, trace.instanceId());
+    }
+    if (trace.workflowName() != null) {
+      attrs.put(DurableTracing.KEY_WORKFLOW_NAME, trace.workflowName());
+    }
+    return attrs;
+  }
+
+  // Restore a prior MDC value, removing the key when there was none.
+  private static void restore(String key, String previous) {
+    if (previous != null) {
+      MDC.put(key, previous);
+    } else {
+      MDC.remove(key);
+    }
   }
 
   // ChatResponseMetadata returns "" (not null) for an absent model/id; normalize to null.

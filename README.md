@@ -216,6 +216,47 @@ concurrency a workflow may run the wrong closure. (For what's *advertised* to th
 model, a request-scoped tool correctly overrides a same-named global one for that
 call.)
 
+## Observability
+
+A caller's trace shows the durable call, and the LLM/tool activity spans nest
+under the **originating request's** trace — even though the activities execute on
+worker threads (possibly another replica). This mirrors Dapr Agents, which
+propagates the trace context through the workflow input and restores it
+activity-side; here it's done with Micrometer. Three layers join up:
+
+1. **Caller side** — the advisor wraps the blocking schedule+wait in a Micrometer
+   `Observation` named `dapr.springai.durable.call` (tags: `workflow_name`,
+   `outcome` = `completed | timeout | failed`, and the `instance_id`), and it
+   echoes the instance id + workflow name onto the response
+   (`ChatClientResponse.context()` and `ChatResponse.getMetadata()`, keys
+   `dapr.spring-ai.instance-id` / `dapr.spring-ai.workflow-name`).
+2. **Activity side** — the W3C trace context captured inside that observation is
+   carried in the workflow input and restored around each activity, which runs
+   under a child span (`dapr.springai.llm.invoke` / `dapr.springai.tool.invoke`).
+   With the context restored, **Spring AI's own ChatModel `gen_ai` spans/metrics
+   parent correctly for free** — that's the main payoff; we don't duplicate what
+   Spring AI already records about the model call. (Spans are created only on the
+   caller thread and inside activities — never in the orchestrator, whose replays
+   would otherwise re-emit them.)
+3. **Sidecar workflow tracing** — when an `ObservationRegistry` is present, the
+   starter auto-configures Dapr's observed workflow client
+   (`ObservationDaprWorkflowClient`, from `dapr-spring-boot-observation`), which
+   propagates the caller's trace context to the sidecar at schedule time. The
+   sidecar's `durabletask` workflow spans then join the caller's trace rather than
+   forming a separate one (requires dapr-sdk-workflows ≥ 1.18 and a sidecar that
+   honors the propagated context; otherwise they still correlate by instance id).
+4. **Log correlation** — each activity puts the instance id (and, for a tool, the
+   tool name) into SLF4J **MDC** for the duration of the call, so logs line up by
+   run regardless of any tracing backend.
+
+**No tracing backend configured ⇒ everything no-ops** — zero overhead beyond a
+null check (the core defines a tiny `DurableTracing` SPI with a no-op default;
+the Micrometer implementation ships in the starter as an *optional* dependency,
+activated only when a tracing bridge is present; the observed workflow client
+records nothing until a tracing handler is on the `ObservationRegistry`). **MDC
+correlation works regardless.** There are no configuration properties: presence
+of the `ObservationRegistry` / `Tracer` beans is the switch.
+
 ## Retries
 
 The model call and each tool call run as workflow activities, and a transient

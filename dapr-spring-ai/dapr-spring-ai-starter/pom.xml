@@ -33,9 +33,41 @@
       <artifactId>spring-boot-autoconfigure</artifactId>
     </dependency>
 
+    <!-- Dapr's observed workflow client: ObservationDaprWorkflowClient wraps the workflow client with
+         Micrometer observation + trace-context propagation to the sidecar, so the workflow's spans join
+         the caller's trace. Pulls only dapr-sdk(-workflows) + micrometer-observation + opentelemetry-api
+         (all already present) — NOT a tracing bridge, so it stays no-op without one. -->
+    <dependency>
+      <groupId>io.dapr.spring</groupId>
+      <artifactId>dapr-spring-boot-observation</artifactId>
+      <version>${dapr.version}</version>
+    </dependency>
+
+    <!-- Tracing SPI implementation. OPTIONAL: only apps with a tracing bridge get it transitively;
+         otherwise the durable path uses DurableTracing.NOOP. Compiled against the API only.
+         (micrometer-observation is already present transitively via spring-ai-client-chat.) -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-tracing</artifactId>
+      <optional>true</optional>
+    </dependency>
+
     <dependency>
       <groupId>org.junit.jupiter</groupId>
       <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Observability test kits: TestObservationRegistry (assert the caller observation) and
+         SimpleTracer (assert cross-thread span parenting). -->
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-observation-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+    <dependency>
+      <groupId>io.micrometer</groupId>
+      <artifactId>micrometer-tracing-test</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>

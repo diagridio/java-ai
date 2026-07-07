@@ -94,4 +94,38 @@
       </plugin>
     </plugins>
   </build>
+
+  <profiles>
+    <!-- `-Ptracing`: pull in Spring Boot tracing (OpenTelemetry → OTLP → Jaeger). The base build has
+         NO tracing dependencies, so dapr-spring-ai stays fully no-op by default (which also
+         demonstrates the starter's optional-dependency degradation). With these present a Tracer bean
+         exists, so the durable path's spans become exportable. Pair with the `tracing` Spring profile
+         (application-tracing.properties) and a running Jaeger — see the README's Observability section.
+         Versions are managed by the Spring Boot parent. -->
+    <profile>
+      <id>tracing</id>
+      <dependencies>
+        <dependency>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+        <!-- Boot 4 split tracing into per-tech autoconfig modules. Export to Jaeger via OTLP (its
+             native ingestion): the OpenTelemetry tracing module provides the Tracer/Propagator bridge
+             + the OTLP exporter autoconfig, and opentelemetry-exporter-otlp provides the actual
+             exporter. The bare Micrometer bridge alone is NOT enough on Boot 4. -->
+        <dependency>
+          <groupId>org.springframework.boot</groupId>
+          <artifactId>spring-boot-micrometer-tracing-opentelemetry</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>io.micrometer</groupId>
+          <artifactId>micrometer-tracing-bridge-otel</artifactId>
+        </dependency>
+        <dependency>
+          <groupId>io.opentelemetry</groupId>
+          <artifactId>opentelemetry-exporter-otlp</artifactId>
+        </dependency>
+      </dependencies>
+    </profile>
+  </profiles>
 </project>

@@ -4,7 +4,8 @@ DAPR_HTTP := 3500
 PROJECT   ?=
 MSG       ?= Where am I going on my trip?
 
-.PHONY: dapr run run-dapr run-ollama test-weather test-guide test-trip test-research test-refine \
+.PHONY: dapr dapr-tracing run run-dapr run-dapr-tracing run-ollama jaeger jaeger-stop \
+        test-weather test-guide test-trip test-research test-refine \
         test-route-quick test-route-long test-travel test-chat test-chat-isolated test-retry \
         test-packing test-budget registry-list memory-list catalyst-config redis-flush clean
 
@@ -33,6 +34,38 @@ run-dapr:
 run-ollama:
 	OPENAI_API_KEY=ollama mvn spring-boot:run \
 		-Dspring-boot.run.arguments="--spring.ai.openai.base-url=http://localhost:11434/v1 --spring.ai.openai.chat.model=llama3.1:8b"
+
+## ── Observability demo (see the README's "Observability" section) ──
+## End-to-end tracing: caller call → llm/tool activity spans → Spring AI gen_ai span, plus the Dapr
+## sidecar's workflow spans, all in one Jaeger. Three terminals: `make jaeger`, `make dapr-tracing`,
+## `make run-dapr-tracing` — then hit any endpoint and open http://localhost:16686.
+
+## Local Jaeger all-in-one (UI at http://localhost:16686, OTLP receivers on 4317/4318).
+jaeger:
+	docker run -d --rm --name jaeger \
+		-e COLLECTOR_OTLP_ENABLED=true \
+		-p 16686:16686 -p 4317:4317 -p 4318:4318 \
+		jaegertracing/all-in-one:latest
+
+jaeger-stop:
+	-docker stop jaeger
+
+## Dapr sidecar WITH tracing → the same Jaeger via OTLP (adds --config appconfig-tracing.yaml). Use
+## instead of `make dapr` for the tracing demo.
+dapr-tracing:
+	dapr run \
+		--app-id $(APP_ID) \
+		--dapr-grpc-port $(DAPR_GRPC) \
+		--dapr-http-port $(DAPR_HTTP) \
+		--resources-path ./components \
+		--config appconfig-tracing.yaml \
+		--log-level info
+
+## App with the full Dapr stack + tracing (OpenTelemetry→OTLP→Jaeger). `-Ptracing` adds the deps; the
+## `tracing` Spring profile adds the config. Needs `make jaeger` + `make dapr-tracing`.
+run-dapr-tracing:
+	DAPR_GRPC_PORT=$(DAPR_GRPC) DAPR_HTTP_PORT=$(DAPR_HTTP) mvn spring-boot:run -Ptracing \
+		-Dspring-boot.run.profiles=dapr,memory,registry,tracing
 
 ## ── Quick test endpoints (same URLs as the other travel-planner modules) ──
 test-weather:

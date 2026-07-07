@@ -3,6 +3,8 @@ package io.diagrid.springai.durable.boot;
 import io.diagrid.springai.durable.client.DurableCallTimeoutException;
 import io.diagrid.springai.durable.client.DurableRunner;
 import io.diagrid.springai.durable.conversation.MessageCodec;
+import io.diagrid.springai.durable.conversation.MessageRecord;
+import io.diagrid.springai.durable.tracing.DurableTracing;
 import io.diagrid.springai.durable.workflow.AgentRequest;
 import io.diagrid.springai.durable.workflow.AgentResult;
 import io.diagrid.springai.durable.workflow.AgentWorkflow;
@@ -95,32 +97,55 @@ public final class DurableAdvisor implements CallAdvisor {
   private final DurableRunner runner;
   private final DiscoveredTools tools;
   private final MessageCodec codec;
+  private final DurableTracing tracing;
   private final String workflowName;
   private final int order;
 
   /** Guards the one-time shadowed-advisor WARN. */
   private volatile boolean shadowingChecked;
 
-  /** Generic advisor for every ChatClient: runs the shared {@link AgentWorkflow} type. */
+  /** Generic advisor for every ChatClient (no tracing). */
   public DurableAdvisor(DurableRunner runner, DiscoveredTools tools, MessageCodec codec) {
-    this(runner, tools, codec, AgentWorkflow.NAME, Ordered.LOWEST_PRECEDENCE - 1);
+    this(runner, tools, codec, AgentWorkflow.NAME, DurableTracing.NOOP, Ordered.LOWEST_PRECEDENCE - 1);
+  }
+
+  /** Generic advisor for every ChatClient, with tracing. */
+  public DurableAdvisor(
+      DurableRunner runner, DiscoveredTools tools, MessageCodec codec, DurableTracing tracing) {
+    this(runner, tools, codec, AgentWorkflow.NAME, tracing, Ordered.LOWEST_PRECEDENCE - 1);
   }
 
   /**
-   * Per-agent advisor for a named ChatClient bean: runs a workflow named after the bean, at higher
-   * precedence so it wins over the generic advisor present on the same client.
+   * Per-agent advisor for a named ChatClient bean (no tracing): runs a workflow named after the bean,
+   * at higher precedence so it wins over the generic advisor present on the same client.
    *
    * @param workflowName the per-agent workflow name (the ChatClient bean name)
    */
   public DurableAdvisor(DurableRunner runner, DiscoveredTools tools, MessageCodec codec, String workflowName) {
-    this(runner, tools, codec, workflowName, Ordered.LOWEST_PRECEDENCE - 2);
+    this(runner, tools, codec, workflowName, DurableTracing.NOOP, Ordered.LOWEST_PRECEDENCE - 2);
+  }
+
+  /** Per-agent advisor for a named ChatClient bean, with tracing. */
+  public DurableAdvisor(
+      DurableRunner runner,
+      DiscoveredTools tools,
+      MessageCodec codec,
+      String workflowName,
+      DurableTracing tracing) {
+    this(runner, tools, codec, workflowName, tracing, Ordered.LOWEST_PRECEDENCE - 2);
   }
 
   private DurableAdvisor(
-      DurableRunner runner, DiscoveredTools tools, MessageCodec codec, String workflowName, int order) {
+      DurableRunner runner,
+      DiscoveredTools tools,
+      MessageCodec codec,
+      String workflowName,
+      DurableTracing tracing,
+      int order) {
     this.runner = runner;
     this.tools = tools;
     this.codec = codec;
+    this.tracing = tracing;
     this.workflowName = workflowName;
     this.order = order;
   }
@@ -130,25 +155,32 @@ public final class DurableAdvisor implements CallAdvisor {
     warnIfShadowingOnce(chain);
     List<ToolSpec> toolSpecs = resolveToolSpecs(request.prompt().getOptions());
     ChatOptionsSpec options = ChatOptionsSpec.from(request.prompt().getOptions());
-
-    AgentRequest agentRequest =
-        new AgentRequest(codec.toRecords(request.prompt().getInstructions()), toolSpecs, options);
+    List<MessageRecord> messages = codec.toRecords(request.prompt().getInstructions());
 
     // dapr-agents parity ("instance_id or uuid4()"): use a caller-supplied id if one is set on the
     // request context, else a fresh random UUID — no dedup, no derivation. The id is echoed on
-    // success and carried on the typed timeout so a lost result can be collected later by id.
+    // success and carried on the typed timeout so a lost result can be looked up later.
     String instanceId = resolveInstanceId(request);
 
-    AgentResult result;
-    try {
-      result = runner.run(instanceId, agentRequest, workflowName);
-    } catch (DurableCallTimeoutException e) {
-      // Not a failure — the workflow is still running. Propagate UNWRAPPED so callers can catch it by
-      // type and read the instance id (for correlation / lookup in Dapr tooling).
-      throw e;
-    } catch (RuntimeException e) {
-      throw new IllegalStateException("Durable ChatClient call failed", e);
-    }
+    // Observe the blocking schedule+wait on the CALLER thread; the carrier captured inside the
+    // observation scope is embedded in the workflow input so activity spans (on worker threads,
+    // possibly another replica) nest under this trace. NOOP tracing makes this a plain passthrough.
+    AgentResult result =
+        tracing.observeDurableCall(
+            workflowName,
+            instanceId,
+            carrier -> {
+              AgentRequest agentRequest = new AgentRequest(messages, toolSpecs, options, carrier);
+              try {
+                return runner.run(instanceId, agentRequest, workflowName);
+              } catch (DurableCallTimeoutException e) {
+                // Not a failure — the workflow is still running. Propagate UNWRAPPED (the observation
+                // records outcome=timeout) so callers can catch it by type and read the instance id.
+                throw e;
+              } catch (RuntimeException e) {
+                throw new IllegalStateException("Durable ChatClient call failed", e);
+              }
+            });
 
     // Echo the execution identity both on the response metadata and in the response context.
     Map<String, Object> context = new LinkedHashMap<>(request.context());
