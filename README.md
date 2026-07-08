@@ -1,5 +1,7 @@
 # java-ai
 
+[![build](https://github.com/diagridio/java-ai/actions/workflows/build.yml/badge.svg)](https://github.com/diagridio/java-ai/actions/workflows/build.yml)
+
 Durable AI integrations for Java, built on [Dapr](https://dapr.io).
 
 > **Status:** Early development. APIs and module layout are not yet stable.

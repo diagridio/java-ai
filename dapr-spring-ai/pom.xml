@@ -22,13 +22,18 @@
          (Spring AI 2.0 itself uses Jackson 3 under tools.jackson; the two coexist on the classpath.) -->
     <jackson2.version>2.21.2</jackson2.version>
     <junit.version>5.11.4</junit.version>
-    <!-- Test tags excluded by default; clear with -Ddsa.excludedGroups= to run live tests. -->
+    <!-- Tags excluded from the default (Surefire) unit run: the live-service `probe` classes and the
+         crash-recovery `integration` IT. The IT has its own lane — run it with `-Pintegration` (see the
+         profile below). To run a `probe`, name it explicitly and clear this property, e.g.
+         `mvn -pl dapr-spring-ai-core test -Dtest=ToolExecutionProbe -Ddsa.excludedGroups=`. -->
     <dsa.excludedGroups>probe,integration</dsa.excludedGroups>
     <!-- Static analysis (copied from dapr-java-agents). Versions all run on JDK 17. -->
     <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
     <checkstyle.version>10.21.4</checkstyle.version>
     <spotbugs-maven-plugin.version>4.9.8.3</spotbugs-maven-plugin.version>
     <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
+    <!-- Failsafe runs the `*IT` integration test; Surefire's default patterns never match `*IT`. -->
+    <maven-failsafe-plugin.version>3.2.5</maven-failsafe-plugin.version>
   </properties>
 
   <modules>
@@ -54,9 +59,9 @@
           <artifactId>maven-surefire-plugin</artifactId>
           <version>3.2.5</version>
           <configuration>
-            <!-- Live-service tests (Ollama, Docker/Testcontainers) are opt-in: override the
-                 property to include them, e.g. -Ddsa.excludedGroups= . Default build runs only
-                 pure unit tests. -->
+            <!-- The default build runs pure unit tests only; `probe` and `integration` tagged tests
+                 (Docker/Testcontainers + a live LLM) are excluded. The IT runs in the `-Pintegration`
+                 lane below via Failsafe, not here. -->
             <excludedGroups>${dsa.excludedGroups}</excludedGroups>
           </configuration>
         </plugin>
@@ -171,4 +176,41 @@
       </dependency>
     </dependencies>
   </dependencyManagement>
+
+  <profiles>
+    <!-- `-Pintegration`: run the crash-recovery IT via Failsafe during `verify`.
+         Surefire's default include patterns match `*Test` classes but never `*IT`, so the
+         `integration`-tagged CrashRecoveryIT needs Failsafe (whose defaults DO match `*IT`).
+         This lane is heavy and opt-in: it needs Docker (the Dapr sidecar runs in Testcontainers)
+         and a live local Ollama serving llama3.1:8b; without Ollama the IT skips itself (assumeTrue).
+         Run it with: `mvn -pl dapr-spring-ai-core -Pintegration verify`. Not in the default build. -->
+    <profile>
+      <id>integration</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <version>${maven-failsafe-plugin.version}</version>
+            <configuration>
+              <!-- Run only the integration-tagged ITs. useManifestOnlyJar=false hands the forked
+                   worker JVM the real, full classpath (WorkerMain reads java.class.path to spawn
+                   itself); a manifest-only jar would give it a truncated classpath. -->
+              <groups>integration</groups>
+              <useManifestOnlyJar>false</useManifestOnlyJar>
+            </configuration>
+            <executions>
+              <execution>
+                <id>run-integration-tests</id>
+                <goals>
+                  <goal>integration-test</goal>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
 </project>
