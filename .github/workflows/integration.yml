@@ -1,0 +1,68 @@
+# Crash-recovery integration test (CrashRecoveryIT). BEST-EFFORT, on-demand only.
+#
+# Deliberately workflow_dispatch-only — no PR trigger and no nightly schedule — because the test is
+# heavy and needs a real LLM:
+#   * Docker: the Dapr sidecar runs in a Testcontainers container (daprio/daprd:1.18.0), which is
+#     present on ubuntu-latest, so no `dapr init` is needed.
+#   * A live Ollama serving llama3.1:8b (~4.9 GB): WorkerMain drives a REAL OllamaChatModel — there is
+#     no stub. Without Ollama the IT skips itself (JUnit assumeTrue), i.e. it becomes a green no-op
+#     rather than a real test.
+# On a CPU-only GitHub-hosted runner an 8B model is slow (multi-minute generations against the test's
+# 180s per-call timeouts), so this lane is NOT wired as a required gate or a nightly — it would be
+# flaky. Run it manually here when needed, or point it at a GPU/self-hosted runner where it is
+# reliable. To promote it to a nightly, add a `schedule:` trigger once it runs on a capable runner.
+name: integration
+
+on:
+  workflow_dispatch:
+
+# Least privilege: this workflow only reads the repository.
+permissions:
+  contents: read
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  crash-recovery-it:
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+          cache: maven
+
+      # The official installer registers and starts a systemd `ollama` service on ubuntu-latest.
+      # Wait for its API to come up, then pull the model the IT pins (llama3.1:8b).
+      - name: Install Ollama and pull the model
+        run: |
+          curl -fsSL https://ollama.com/install.sh | sh
+          for _ in $(seq 1 60); do
+            curl -sf http://localhost:11434/api/tags >/dev/null 2>&1 && break
+            sleep 2
+          done
+          ollama pull llama3.1:8b
+          ollama list
+
+      # Failsafe runs CrashRecoveryIT via the `integration` profile (see dapr-spring-ai/pom.xml).
+      # Docker for the Dapr sidecar is provided by the runner; Testcontainers talks to it directly.
+      - name: Run crash-recovery IT
+        working-directory: dapr-spring-ai
+        run: mvn -B -pl dapr-spring-ai-core -Pintegration verify
+
+      - name: Upload test reports
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: integration-reports
+          path: |
+            **/target/failsafe-reports/**
+            **/target/surefire-reports/**
+          if-no-files-found: ignore

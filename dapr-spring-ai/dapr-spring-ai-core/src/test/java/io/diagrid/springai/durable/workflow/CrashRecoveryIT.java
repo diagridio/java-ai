@@ -45,7 +45,7 @@ import org.testcontainers.junit.jupiter.Testcontainers;
  * activity is NOT re-run and the tool's side effect happens exactly once.
  *
  * <p>Requires Docker and a local Ollama with the model; tagged {@code integration} and excluded from
- * the default build. Run with: {@code mvn -pl core test -Dtest=CrashRecoveryIT -DexcludedGroups=}.
+ * the default build. Run with: {@code mvn -pl dapr-spring-ai-core -Pintegration verify}.
  */
 @Testcontainers
 @Tag("integration")
