@@ -2,7 +2,8 @@ name: build
 
 # Build the library and run the full unit-test + static-analysis suite (Checkstyle, SpotBugs, PMD)
 # on every PR and every push to main, across the supported JDKs. The crash-recovery integration test
-# is NOT here — it is heavy and infra-dependent; it has its own lane in integration.yml.
+# is NOT here — it is heavy and infra-dependent (Docker + a live Ollama serving llama3.1:8b); run it
+# manually with `mvn -pl dapr-spring-ai-core -Pintegration verify`.
 on:
   push:
     branches: [main]
