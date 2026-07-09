@@ -409,10 +409,35 @@ Notes:
   no etag yet, so two *simultaneous first turns* on a brand-new conversation id can
   still race (store-dependent).
 
+## Conversation API
+
+The `dapr-spring-ai-conversation` module (separate dependency, independent of
+durability) provides a Spring AI `ChatModel` whose LLM calls go through the
+Dapr sidecar's [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/)
+instead of a provider SDK — swap providers by component configuration, keep
+provider SDKs and API keys out of the app, and get sidecar features like PII
+scrubbing for free. Tool calling is supported (definitions advertised, tool
+calls returned — never executed in-model, so it composes with the durable
+path); the API is text-only and non-streaming. Configure under
+`dapr.spring-ai.conversation`:
+
+| Property | Default | Meaning |
+|---|---|---|
+| `dapr.spring-ai.conversation.component` | — (**required**) | Dapr conversation component routing LLM traffic |
+| `dapr.spring-ai.conversation.context-id` | — | conversation session id handed to the sidecar |
+| `dapr.spring-ai.conversation.scrub-pii` | `false` | sidecar obfuscates PII in inputs and outputs |
+| `dapr.spring-ai.conversation.temperature` | — | default sampling temperature |
+
+Model selection follows Spring AI's provider-starter convention: the model
+registers unless `spring.ai.model.chat` selects another provider (set it to
+`dapr` to pick this one explicitly, `none` to disable all chat models).
+Capabilities, caveats, and component YAML examples:
+[module README](dapr-spring-ai/dapr-spring-ai-conversation/README.md).
+
 ## Roadmap
 
 - [x] `dapr-spring-ai` — durable `ChatClient` over Dapr Workflows
-- [ ] Dapr [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/) integration — Spring AI `ChatModel` backed by Dapr's Conversation building block
+- [x] Dapr [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/) integration — Spring AI `ChatModel` backed by Dapr's Conversation building block
 - [x] Chat memory backed by a Dapr state store — durable conversation history via Spring AI's `ChatMemory`
 - [x] Agent registry backed by a Dapr state store
 - [x] Spring Boot auto-configuration / starter

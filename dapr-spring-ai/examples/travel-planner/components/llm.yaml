@@ -1,0 +1,21 @@
+apiVersion: dapr.io/v1alpha1
+kind: Component
+metadata:
+  name: llm
+spec:
+  type: conversation.openai
+  version: v1
+  metadata:
+    # Same provider/model as the app's default OpenAI profile, but the credentials and model choice
+    # now live sidecar-side: the app (conversation Spring profile) only names this component. Swap
+    # the provider by editing this file — the app doesn't change. The key comes from the sidecar's
+    # environment via the envvar-secret-store (export OPENAI_API_KEY before `make dapr`). For a
+    # keyless local smoke test, change type to conversation.echo and drop the metadata entries.
+    - name: key
+      secretKeyRef:
+        name: OPENAI_API_KEY
+        key: OPENAI_API_KEY
+    - name: model
+      value: gpt-4o-mini
+auth:
+  secretStore: envvar-secret-store
