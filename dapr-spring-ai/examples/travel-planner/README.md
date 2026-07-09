@@ -115,7 +115,20 @@ export OPENAI_API_KEY=sk-...
 make run-dapr            # = mvn spring-boot:run -Dspring-boot.run.profiles=dapr,memory,registry
 ```
 
-Trim the profiles to taste (e.g. `-Dspring-boot.run.profiles=dapr` for durability only). The app
+Trim or combine the profiles to taste (e.g. `-Dspring-boot.run.profiles=dapr` for durability only) —
+Spring activates every profile in the comma-separated list, and these are designed to compose. Two
+additional profiles select the **LLM backend** (they flip `spring.ai.model.chat`, so activate at most
+one of them; if both are listed, the last wins):
+
+```bash
+# LLM through the sidecar's Conversation API (no provider SDK config in the app) — needs `make dapr`
+make run-conversation        # = -Dspring-boot.run.profiles=conversation
+
+# everything: durable workflows + memory + registry, LLM via the sidecar too
+make run-dapr-conversation   # = -Dspring-boot.run.profiles=dapr,memory,registry,conversation
+```
+
+The app
 listens on `:8080` either way (the `make test-*` targets below exercise the endpoints). Under the `dapr`
 profile each agent call executes as a durable Dapr Workflow, with state persisted in Redis (the
 shared `dapr_redis` container) — inspectable in the **Diagrid dashboard** and via
@@ -259,10 +272,23 @@ durable path is a pure no-op (zero overhead) — a live demo of the starter's gr
 
 ## LLM Provider Configuration
 
-Configured in `application.properties` (`spring.ai.openai.*`): committed default is OpenAI
-`gpt-4o-mini`, key from `${OPENAI_API_KEY}`. To target a different OpenAI-compatible endpoint
-(e.g. Ollama), set `spring.ai.openai.base-url` — note it must end in `/v1`, since Spring AI 2.0's
-underlying `openai-java` SDK appends `/chat/completions` to the base-url.
+Two chat models are on the classpath, selected by `spring.ai.model.chat` (Spring AI's standard
+provider switch); the `openai` and `conversation` Spring profiles flip it:
+
+- **`openai` (the committed default, also without any profile)** — the in-app OpenAI SDK,
+  configured in `application.properties` (`spring.ai.openai.*`): OpenAI `gpt-4o-mini`, key from
+  `${OPENAI_API_KEY}`. To target a different OpenAI-compatible endpoint (e.g. Ollama), set
+  `spring.ai.openai.base-url` — note it must end in `/v1`, since Spring AI 2.0's underlying
+  `openai-java` SDK appends `/chat/completions` to the base-url.
+- **`conversation`** — the `dapr-spring-ai-conversation` ChatModel: LLM traffic leaves the app as a
+  Dapr Conversation API call and the **sidecar** talks to the provider, configured by the `llm`
+  component (`components/llm.yaml`, key via the env secret store). No provider SDK config in the
+  app; swap providers by editing the component YAML. Requires a sidecar (`make dapr`).
+
+The LLM profiles compose with the concern profiles (`dapr`, `memory`, `registry`, `tracing`) —
+`make run-dapr-conversation` runs durable workflows whose LLM activity also goes through the
+sidecar. Activate only one LLM profile at a time: both set the same selector, so listing both just
+means the last one wins.
 
 ## Project Structure
 
@@ -270,14 +296,14 @@ underlying `openai-java` SDK appends `/chat/completions` to the base-url.
 travel-planner/
 ├── pom.xml                 Spring Boot 4.0.5 parent, Java 21, spring-ai 2.0.0 + the 3 dapr-spring-ai starters; `-Ptracing` profile
 ├── .sdkmanrc               java=21.0.11-tem, maven=3.9.0
-├── Makefile                run (pure) / run-dapr / run-ollama / jaeger / dapr-tracing / run-dapr-tracing / test-* / *-list
-├── components/             kvstore (workflow actor store) + agent-registry + agent-memory (Redis)
+├── Makefile                run (pure) / run-dapr / run-ollama / run-conversation / run-dapr-conversation / jaeger / dapr-tracing / run-dapr-tracing / test-* / *-list
+├── components/             kvstore (workflow actor store) + agent-registry + agent-memory (Redis) + llm (conversation.openai) + env secret store
 ├── appconfig.yaml          Dapr Configuration: workflow state-retention policy (Catalyst)
 ├── appconfig-tracing.yaml  Dapr Configuration for the tracing demo: sidecar spans → local Jaeger (OTLP)
 ├── travel-planner-dev.yaml Diagrid Catalyst dev-run file (diagrid dev run)
 ├── src/main/resources/
 │   ├── application.properties                                   pure defaults (Dapr off) + profile usage
-│   └── application-{dapr,memory,registry,tracing}.properties    opt-in profiles
+│   └── application-{dapr,memory,registry,tracing,openai,conversation}.properties    opt-in profiles
 └── src/main/java/io/diagrid/springai/examples/travelplanner/
     ├── TravelPlannerApplication.java
     ├── tools/              7 @Tool classes: 6 request-scoped (mock data + FlakyApiTools) + CurrencyTools (@Component = global, offered to every durable agent)

@@ -84,6 +84,11 @@
       <artifactId>dapr-spring-ai-memory</artifactId>
       <version>0.1.0-SNAPSHOT</version>
     </dependency>
+    <dependency>
+      <groupId>io.diagrid</groupId>
+      <artifactId>dapr-spring-ai-conversation</artifactId>
+      <version>0.1.0-SNAPSHOT</version>
+    </dependency>
   </dependencies>
 
   <build>

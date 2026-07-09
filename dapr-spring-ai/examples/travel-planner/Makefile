@@ -4,7 +4,8 @@ DAPR_HTTP := 3500
 PROJECT   ?=
 MSG       ?= Where am I going on my trip?
 
-.PHONY: dapr dapr-tracing run run-dapr run-dapr-tracing run-ollama jaeger jaeger-stop \
+.PHONY: dapr dapr-tracing run run-dapr run-dapr-tracing run-ollama run-conversation \
+        run-dapr-conversation jaeger jaeger-stop \
         test-weather test-guide test-trip test-research test-refine \
         test-route-quick test-route-long test-travel test-chat test-chat-isolated test-retry \
         test-packing test-budget registry-list memory-list catalyst-config redis-flush clean
@@ -29,6 +30,19 @@ run:
 run-dapr:
 	DAPR_GRPC_PORT=$(DAPR_GRPC) DAPR_HTTP_PORT=$(DAPR_HTTP) mvn spring-boot:run \
 		-Dspring-boot.run.profiles=dapr,memory,registry
+
+## LLM through the Dapr sidecar's Conversation API (dapr-spring-ai-conversation) instead of the
+## in-app OpenAI SDK: the `llm` component in ./components picks the provider, the app holds no
+## provider config. Needs `make dapr` in another terminal (with OPENAI_API_KEY exported there).
+run-conversation:
+	DAPR_GRPC_PORT=$(DAPR_GRPC) DAPR_HTTP_PORT=$(DAPR_HTTP) mvn spring-boot:run \
+		-Dspring-boot.run.profiles=conversation
+
+## The full Dapr story: durable workflows + memory + registry, with the LLM activity itself also
+## calling through the sidecar's Conversation API. Needs `make dapr` in another terminal.
+run-dapr-conversation:
+	DAPR_GRPC_PORT=$(DAPR_GRPC) DAPR_HTTP_PORT=$(DAPR_HTTP) mvn spring-boot:run \
+		-Dspring-boot.run.profiles=dapr,memory,registry,conversation
 
 ## Pure Spring AI against a local Ollama instead of OpenAI (no key needed, no sidecar).
 run-ollama:

@@ -4,4 +4,9 @@ common:
 apps:
   - appID: travel-planner-spring-ai-dapr
     appDirPath: ./
-    command: ["mvn", "spring-boot:run"]
+    # conversation profile: LLM traffic goes through the Catalyst sidecar's Conversation API via a
+    # conversation component named `llm` — create it in the Catalyst project first (the local
+    # ./components/llm.yaml only feeds `dapr run`); without it the first LLM call fails. Add the
+    # other profiles to taste, e.g. dapr,memory,registry,conversation for the full durable stack
+    # (the managed agent-memory/agent-registry stores already exist in Catalyst).
+    command: ["mvn", "spring-boot:run", "-Dspring-boot.run.profiles=conversation"]
