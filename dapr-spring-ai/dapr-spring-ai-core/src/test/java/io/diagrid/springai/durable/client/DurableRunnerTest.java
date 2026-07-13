@@ -1,6 +1,7 @@
 package io.diagrid.springai.durable.client;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotEquals;
 import static org.junit.jupiter.api.Assertions.assertSame;
 import static org.junit.jupiter.api.Assertions.assertThrows;
@@ -9,6 +10,7 @@ import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
+import static org.mockito.Mockito.doThrow;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -30,10 +32,13 @@ import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
 
 /**
- * dapr-agents parity: {@link DurableRunner#run} schedules under the given id, waits, and returns the
- * output — no probe, no dedup. A wait timeout surfaces as {@link DurableCallTimeoutException} carrying
- * the id (no in-app collect-by-id). {@link DurableRunner#outputOrThrow} yields output only from a
- * genuine COMPLETED.
+ * dapr-agents parity: {@link DurableRunner#run} (the generated-id path) schedules under the given id,
+ * waits, and returns the output — no probe, no dedup. {@link DurableRunner#attachOrRun} (the
+ * caller-supplied-id path) probes first and attaches to an existing instance instead of colliding:
+ * completed → recorded result (never re-run), failed → recorded failure, running → wait, absent →
+ * schedule (with the concurrent-create "already exists" race folded into attach). A wait timeout
+ * surfaces as {@link DurableCallTimeoutException} carrying the id. {@link DurableRunner#outputOrThrow}
+ * yields output only from a genuine COMPLETED, and names the id on a foreign (undeserializable) output.
  */
 class DurableRunnerTest {
 
@@ -150,6 +155,148 @@ class DurableRunnerTest {
 
     AgentResult returned = new DurableRunner(client, Duration.ofSeconds(1)).run("i", request(), "wf");
     assertSame(output, returned);
+  }
+
+  // ---- attachOrRun(): a caller-supplied id attaches to an existing instance, per the contract ----
+
+  private static FakeState absent() {
+    // getWorkflowState never returns null over gRPC; an unknown id is the proto default (RUNNING,
+    // isRunning()==false). See isAbsentIsTrueOnlyForTheProtoDefaultNotFoundState.
+    return new FakeState(WorkflowRuntimeStatus.RUNNING, false, null, null);
+  }
+
+  @Test
+  void attachSchedulesWhenInstanceAbsent() throws Exception {
+    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
+    when(client.getWorkflowState(anyString(), anyBoolean())).thenReturn(absent());
+    when(client.waitForWorkflowCompletion(anyString(), any(), anyBoolean()))
+        .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, completed("FINAL"), null));
+
+    DurableRunner runner = new DurableRunner(client, Duration.ofSeconds(1));
+    assertEquals("FINAL", runner.attachOrRun("mine-1", request(), "wf").finalText());
+
+    verify(client).scheduleNewWorkflow(eq("wf"), any(), eq("mine-1"));
+    verify(client).waitForWorkflowCompletion(eq("mine-1"), any(), anyBoolean());
+  }
+
+  @Test
+  void attachToRunningWaitsWithoutScheduling() throws Exception {
+    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
+    when(client.getWorkflowState(anyString(), anyBoolean()))
+        .thenReturn(new FakeState(WorkflowRuntimeStatus.RUNNING, true, null, null)); // genuinely running
+    when(client.waitForWorkflowCompletion(anyString(), any(), anyBoolean()))
+        .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, completed("FINAL"), null));
+
+    DurableRunner runner = new DurableRunner(client, Duration.ofSeconds(1));
+    assertEquals("FINAL", runner.attachOrRun("mine-2", request(), "wf").finalText());
+
+    verify(client, never()).scheduleNewWorkflow(anyString(), any(), anyString());
+    verify(client).waitForWorkflowCompletion(eq("mine-2"), any(), anyBoolean());
+  }
+
+  /**
+   * The critical regression guard (today a supplied completed id re-runs): a completed instance
+   * returns its recorded result, and the runner NEVER schedules or waits — the outcome is recorded.
+   */
+  @Test
+  void attachToCompletedReturnsRecordedResultAndNeverSchedules() throws Exception {
+    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
+    AgentResult recorded = completed("RECORDED");
+    when(client.getWorkflowState(anyString(), anyBoolean()))
+        .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, recorded, null));
+
+    DurableRunner runner = new DurableRunner(client, Duration.ofSeconds(1));
+    assertSame(recorded, runner.attachOrRun("mine-3", request(), "wf"));
+
+    verify(client, never()).scheduleNewWorkflow(anyString(), any(), anyString());
+    verify(client, never()).waitForWorkflowCompletion(anyString(), any(), anyBoolean());
+  }
+
+  @Test
+  void attachToFailedSurfacesRecordedFailureAndNeverReRuns() throws Exception {
+    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
+    WorkflowFailureDetails failure = new FakeFailure("java.lang.IllegalStateException", "provider 500");
+    when(client.getWorkflowState(anyString(), anyBoolean()))
+        .thenReturn(new FakeState(WorkflowRuntimeStatus.FAILED, false, null, failure));
+
+    DurableRunner runner = new DurableRunner(client, Duration.ofSeconds(1));
+    IllegalStateException e =
+        assertThrows(IllegalStateException.class, () -> runner.attachOrRun("mine-4", request(), "wf"));
+    assertTrue(e.getMessage().contains("FAILED"), e.getMessage());
+    assertTrue(e.getMessage().contains("provider 500"), e.getMessage());
+
+    verify(client, never()).scheduleNewWorkflow(anyString(), any(), anyString());
+    verify(client, never()).waitForWorkflowCompletion(anyString(), any(), anyBoolean());
+  }
+
+  /**
+   * Concurrent-create race: the probe reports absent, but a concurrent caller created the id first, so
+   * the schedule throws the backend's untyped "already exists" error. This pins the message match:
+   * wrapped in a cause chain AND mixed-case still routes to the attach path.
+   */
+  @Test
+  void attachOnAlreadyExistsScheduleRaceAttachesInsteadOfFailing() throws Exception {
+    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
+    when(client.getWorkflowState(anyString(), anyBoolean())).thenReturn(absent());
+    doThrow(new RuntimeException("schedule failed", new RuntimeException("Instance ALREADY EXISTS")))
+        .when(client).scheduleNewWorkflow(eq("wf"), any(), eq("mine-5"));
+    when(client.waitForWorkflowCompletion(anyString(), any(), anyBoolean()))
+        .thenReturn(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, completed("FINAL"), null));
+
+    DurableRunner runner = new DurableRunner(client, Duration.ofSeconds(1));
+    assertEquals("FINAL", runner.attachOrRun("mine-5", request(), "wf").finalText());
+    verify(client).waitForWorkflowCompletion(eq("mine-5"), any(), anyBoolean());
+  }
+
+  /** A schedule error that is NOT "already exists" is real and must propagate (never swallowed). */
+  @Test
+  void attachPropagatesNonAlreadyExistsScheduleError() throws Exception {
+    DaprWorkflowClient client = mock(DaprWorkflowClient.class);
+    when(client.getWorkflowState(anyString(), anyBoolean())).thenReturn(absent());
+    doThrow(new RuntimeException("connection refused"))
+        .when(client).scheduleNewWorkflow(anyString(), any(), anyString());
+
+    DurableRunner runner = new DurableRunner(client, Duration.ofSeconds(1));
+    RuntimeException e =
+        assertThrows(RuntimeException.class, () -> runner.attachOrRun("mine-6", request(), "wf"));
+    assertTrue(e.getMessage().contains("connection refused"), e.getMessage());
+    verify(client, never()).waitForWorkflowCompletion(anyString(), any(), anyBoolean());
+  }
+
+  /**
+   * NOT-FOUND pin (the fact attachOrRun's absent-detection rests on): only the proto-default pair
+   * — status RUNNING with isRunning()==false — is "absent". A genuinely running instance
+   * (isRunning()==true) and every present-but-not-running status are found. Verified against
+   * dapr-sdk-workflows 1.18.0.
+   */
+  @Test
+  void isAbsentIsTrueOnlyForTheProtoDefaultNotFoundState() {
+    assertTrue(DurableRunner.isAbsent(new FakeState(WorkflowRuntimeStatus.RUNNING, false, null, null)));
+    assertFalse(
+        DurableRunner.isAbsent(new FakeState(WorkflowRuntimeStatus.RUNNING, true, null, null)),
+        "a genuinely running instance is found, not absent");
+    assertFalse(
+        DurableRunner.isAbsent(new FakeState(WorkflowRuntimeStatus.COMPLETED, false, completed("x"), null)));
+    assertFalse(DurableRunner.isAbsent(new FakeState(WorkflowRuntimeStatus.PENDING, false, null, null)));
+    assertFalse(DurableRunner.isAbsent(new FakeState(WorkflowRuntimeStatus.SUSPENDED, false, null, null)));
+  }
+
+  /**
+   * Foreign-output: a COMPLETED instance whose output cannot be read as an AgentResult (a supplied id
+   * pointing at a different workflow type) surfaces a clear error naming the id, not a raw
+   * deserialization failure.
+   */
+  @Test
+  void foreignCompletedOutputThrowsAClearErrorNamingTheId() {
+    WorkflowState state = mock(WorkflowState.class);
+    when(state.getRuntimeStatus()).thenReturn(WorkflowRuntimeStatus.COMPLETED);
+    when(state.readOutputAs(AgentResult.class)).thenThrow(new RuntimeException("cannot deserialize"));
+
+    IllegalStateException e =
+        assertThrows(
+            IllegalStateException.class, () -> DurableRunner.outputOrThrow(state, "foreign-9"));
+    assertTrue(e.getMessage().contains("foreign-9"), e.getMessage());
+    assertTrue(e.getMessage().toLowerCase().contains("foreign"), e.getMessage());
   }
 
   /** Minimal {@link WorkflowState}: status, isRunning, output, and failure carry meaning. */

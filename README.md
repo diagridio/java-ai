@@ -105,28 +105,34 @@ call is a new execution.
 **On a wait-budget timeout.** A call blocks only for
 `dapr.spring-ai.completion-timeout`. If that elapses the workflow keeps running
 and the call throws a `DurableCallTimeoutException` carrying the instance id — the
-timeout is a *wait budget*, not a failure. The library does **not** offer an
-in-app way to collect the result afterwards; the run is still durable and can be
-inspected (and its output read) via the **Diagrid dashboard** or the
+timeout is a *wait budget*, not a failure. To collect the result, schedule under
+an id **you own** and **repeat the same call** with that id: it re-attaches to the
+running instance and returns once ready (see *Choosing your own instance id*
+below). With a generated id there is no attach handle, so the run is recovered
+out-of-band — inspected (and its output read) via the **Diagrid dashboard** or the
 `dapr workflow` CLI using that id. The instance id and workflow name are also
 echoed on every **successful** response, in `ChatClientResponse.context()` and
 `ChatResponse.getMetadata()` under the keys `dapr.spring-ai.instance-id` /
 `dapr.spring-ai.workflow-name`, for correlation:
 
 ```java
-try {
-  String answer = chatClient.prompt().user(msg).call().content();
-} catch (DurableCallTimeoutException e) {
-  log.warn("still running as {} — look it up in the dashboard", e.instanceId());
+String answer = null;
+while (answer == null) {
+  try {
+    answer = chatClient.prompt().user(msg)
+        .advisors(a -> a.param(DurableAdvisor.INSTANCE_ID_KEY, myId))  // an id you own
+        .call().content();
+  } catch (DurableCallTimeoutException e) {
+    log.warn("still running as {} — re-attaching", e.instanceId());    // loop: repeat with myId
+  }
 }
 ```
 
-**Choosing your own instance id (optional).** Like Dapr Agents' `instance_id or
-uuid4()`, you can schedule a call under an id you choose — for your own
-correlation — by setting it as an advisor param; omit it and a random UUID is
-generated. It is echoed back on the response under the same key. A supplied id
-must be unique per run (this is not reissue dedup — a duplicate active id is
-rejected by the backend, a completed one re-runs):
+**Choosing your own instance id → retry / recovery (optional).** Omit the id and
+each call runs under a fresh random UUID (dapr-agents parity — no dedup). Supply an
+id you own and it becomes an **attach handle**: a repeated call with the same id
+attaches to the existing instance instead of colliding with it. Set it as an
+advisor param; it is echoed back on the response under the same key:
 
 ```java
 chatClient.prompt().user(msg)
@@ -134,13 +140,39 @@ chatClient.prompt().user(msg)
     .call().content();
 ```
 
-> **Consistency with Dapr Agents.** This is the same execution-identity contract
-> as Dapr Agents: a fresh instance id per run (or a caller-supplied one), and no
-> reissue dedup. An earlier design derived the instance id deterministically from
-> the request to dedup reissues; that drift was removed by a team decision so the
-> Spring AI and Python experiences match. (We intentionally keep the surface
-> smaller than dapr-agents in one spot: no in-app collect-by-instance-id — a
-> timed-out result is recovered through Dapr tooling, not an API call.)
+What a repeated call with the same id does — **same key, same run** (database
+semantics):
+
+| The instance is… | The repeated call… |
+|------------------|--------------------|
+| **running** | waits for it and returns its result |
+| **completed** | returns the recorded answer — no re-run |
+| **failed / terminated** | surfaces the recorded failure — no re-run (purge the id or use a new one to re-attempt) |
+| **absent** (never created, or purged / retention-expired) | runs fresh |
+
+This is how you recover a call that timed out or whose JVM restarted: keep the id,
+repeat the same `ChatClient` call, loop until it returns. Because the repeat is a
+normal successful call, the **whole advisor chain applies** — chat memory records
+the answer, etc. (Best-effort caveat: the memory advisor's request half also runs
+on the retry, so the user message appears twice around a failure — question,
+question, answer. Harmless to the model; app-level idempotency is the app's
+concern.)
+
+Supplied ids are **bearer handles**: anyone who presents the id attaches to the run
+(and reads its result). A caller-supplied id may be guessable, unlike a random
+UUID — so an app that exposes a retry endpoint should guard the id like a primary
+key. To re-run a spent id, purge it first via the injectable `DaprWorkflowClient`:
+
+```java
+daprWorkflowClient.purgeWorkflow(myId);  // then a fresh call with myId runs anew
+```
+
+> **Consistency with Dapr Agents.** The default (generated id) is the same
+> execution-identity contract as Dapr Agents: a fresh id per run, no reissue dedup.
+> The caller-supplied-id attach is a small, deliberate superset for recovery — and
+> an interim one: these semantics are expected to move into the Dapr runtime, so
+> the library adds **no** new contract for them (no metadata keys, flags, or
+> policies — just a repeated client call).
 
 ### Configuration
 
@@ -153,9 +185,12 @@ have their own tables in the sections below):
 | `dapr.spring-ai.completion-timeout` | `5m` | how long a call blocks on its workflow; if it elapses the call throws `DurableCallTimeoutException` while the workflow keeps running — inspect/recover it via Dapr tooling using the instance id (see above) |
 | `dapr.spring-ai.max-iterations` | `20` | hard cap on LLM turns per call; the workflow fails if the model still requests tools past it (guards against a runaway tool loop — stock Spring AI's loop is unbounded) |
 
-Each call runs under its own fresh instance id, so there is nothing to configure
-about dedup — there is none (dapr-agents parity). A retry is a new execution;
-make tool side effects idempotent (see the `taskExecutionId` note above).
+By default each call runs under its own fresh instance id, so there is nothing to
+configure about dedup — there is none (dapr-agents parity). A retry under a
+generated id is a new execution; make tool side effects idempotent (see the
+`taskExecutionId` note above). A retry under an id **you** supply attaches to the
+existing run instead — the recovery contract in *Choosing your own instance id*
+above.
 
 ## Workflow names: per agent, one orchestrator
 

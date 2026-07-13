@@ -64,6 +64,7 @@ class DurableAdvisorToolsTest {
     AgentRequest captured;
     String capturedWorkflowName;
     String capturedInstanceId;
+    boolean lastCallWasAttach;
     AgentResult result = new AgentResult("FINAL", null, null, null, null, 1);
     RuntimeException toThrow;
 
@@ -73,6 +74,17 @@ class DurableAdvisorToolsTest {
 
     @Override
     public AgentResult run(String instanceId, AgentRequest request, String workflowName) {
+      this.lastCallWasAttach = false;
+      return capture(instanceId, request, workflowName);
+    }
+
+    @Override
+    public AgentResult attachOrRun(String instanceId, AgentRequest request, String workflowName) {
+      this.lastCallWasAttach = true;
+      return capture(instanceId, request, workflowName);
+    }
+
+    private AgentResult capture(String instanceId, AgentRequest request, String workflowName) {
       this.captured = request;
       this.capturedWorkflowName = workflowName;
       this.capturedInstanceId = instanceId;
@@ -311,9 +323,12 @@ class DurableAdvisorToolsTest {
     assertNotEquals(first, second, "no dedup: each call is a fresh instance");
   }
 
-  /** dapr-agents parity ("instance_id or uuid4()"): a caller-supplied id is used verbatim + echoed. */
+  /**
+   * dapr-agents parity ("instance_id or uuid4()"): a caller-supplied id is used verbatim + echoed, and
+   * routes to the attach path (a repeat call attaches to the existing instance — the recovery contract).
+   */
   @Test
-  void callerSuppliedInstanceIdIsUsedVerbatim() {
+  void callerSuppliedInstanceIdIsUsedVerbatimAndRoutesToAttach() {
     CapturingRunner runner = new CapturingRunner();
     DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
 
@@ -323,13 +338,26 @@ class DurableAdvisorToolsTest {
     ChatClientResponse response = advisor.adviseCall(new ChatClientRequest(prompt, context), null);
 
     assertEquals("my-correlation-id", runner.capturedInstanceId, "caller-supplied id must be scheduled");
+    assertTrue(runner.lastCallWasAttach, "a supplied id must route to attachOrRun (the attach path)");
     assertEquals(
         "my-correlation-id",
         response.context().get(DurableAdvisor.INSTANCE_ID_KEY),
         "the effective id is echoed back under the same key");
   }
 
-  /** A blank caller-supplied id falls back to a generated one (not used verbatim). */
+  /** A generated (default) id routes to run() — the direct-schedule path, no probe. */
+  @Test
+  void generatedInstanceIdRoutesToRun() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    advisor.adviseCall(requestWithTools(), null); // no INSTANCE_ID_KEY set
+
+    assertNotEquals(null, runner.capturedInstanceId, "a fresh id must be generated");
+    assertFalse(runner.lastCallWasAttach, "a generated id must route to run(), not the attach path");
+  }
+
+  /** A blank caller-supplied id falls back to a generated one (not used verbatim; run path). */
   @Test
   void blankCallerSuppliedInstanceIdFallsBackToGenerated() {
     CapturingRunner runner = new CapturingRunner();
@@ -342,6 +370,7 @@ class DurableAdvisorToolsTest {
 
     assertNotEquals("  ", runner.capturedInstanceId, "a blank id must not be used verbatim");
     assertNotEquals(null, runner.capturedInstanceId, "a fresh id must be generated");
+    assertFalse(runner.lastCallWasAttach, "a blank id falls back to the generated (run) path");
   }
 
   private static CallAdvisor advisorAt(String name, int order) {
