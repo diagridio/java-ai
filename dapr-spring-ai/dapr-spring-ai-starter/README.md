@@ -63,34 +63,39 @@ tools to a client via `.defaultTools(...)`. The advertised surface is the global
 the client's own tools (client tools win on name collision). So "agent-scoped" and "crash-safe"
 partly trade off today.
 
-### Wait-budget timeout
+### Wait-budget timeout and retry
 
-Every call runs under a fresh random workflow instance id (dapr-agents parity — no dedup, no
-content hashing). A call blocks only for `dapr.spring-ai.completion-timeout`; if that elapses the
+By default each call runs under a fresh random workflow instance id (dapr-agents parity — no dedup,
+no content hashing). A call blocks only for `dapr.spring-ai.completion-timeout`; if that elapses the
 workflow keeps running and the call throws `DurableCallTimeoutException` carrying the instance id —
-the timeout is a wait budget, not a failure. There's no in-app way to collect the result afterwards;
-the run is durable and inspectable via the Diagrid dashboard or `dapr workflow` CLI using that id.
-The id (and workflow name) are also echoed on every successful response — in
-`ChatClientResponse.context()` and `ChatResponse.getMetadata()` under `dapr.spring-ai.instance-id` /
-`dapr.spring-ai.workflow-name`, for correlation:
+the timeout is a wait budget, not a failure. The id (and workflow name) are echoed on every
+successful response — in `ChatClientResponse.context()` and `ChatResponse.getMetadata()` under
+`dapr.spring-ai.instance-id` / `dapr.spring-ai.workflow-name`, for correlation.
+
+**To recover a timed-out (or crashed) call, schedule under an id you own and repeat the same call**
+with that id: a repeat attaches to the existing instance — running → waits, completed → returns the
+recorded answer, failed → surfaces the recorded failure. Loop until it returns:
 
 ```java
-try {
-  String answer = chat.prompt().user(message).call().content();
-} catch (DurableCallTimeoutException e) {
-  log.warn("still running as {} — look it up in the dashboard", e.instanceId());
+String myId = "checkout-" + orderId;          // an id you own; guard it like a primary key
+String answer = null;
+while (answer == null) {
+  try {
+    answer = chat.prompt().user(message)
+        .advisors(a -> a.param(DurableAdvisor.INSTANCE_ID_KEY, myId))
+        .call().content();                     // first call creates it; repeats attach to it
+  } catch (DurableCallTimeoutException e) {
+    log.warn("still running as {} — retrying (attaches, doesn't restart)", e.instanceId());
+  }
 }
 ```
 
-To schedule under an id **you** choose (correlation tracking, dapr-agents' `instance_id or uuid4()`),
-set it as an advisor param — it's echoed back under the same key. It must be unique per run (not
-dedup — a duplicate active id is rejected, a completed one re-runs):
-
-```java
-chat.prompt().user(message)
-    .advisors(a -> a.param(DurableAdvisor.INSTANCE_ID_KEY, myId))
-    .call().content();
-```
+Because the successful repeat runs the full advisor chain, chat memory records the answer as usual.
+(Best-effort: the memory advisor also re-records the user message on the retry, so a failed-then-
+retried turn shows the question twice — harmless.) To re-run a spent id, purge it first via the
+injectable `DaprWorkflowClient`: `daprWorkflowClient.purgeWorkflow(myId)`. With a generated id (none
+supplied) there's no attach handle — inspect the still-running run via the Diagrid dashboard or
+`dapr workflow` CLI using the id from the exception.
 
 > `ChatMemory.CONVERSATION_ID` is unrelated to durability — it is purely Spring AI's chat-memory
 > grouping key (see the `dapr-spring-ai-memory` starter). It does not affect the workflow instance id.

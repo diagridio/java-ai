@@ -80,10 +80,12 @@ public final class DurableAdvisor implements CallAdvisor {
    *
    * <ul>
    *   <li><b>Input (optional):</b> set it as an advisor param — {@code .advisors(a -> a.param(
-   *       DurableAdvisor.INSTANCE_ID_KEY, "my-id"))} — to schedule this call under an id you choose
-   *       (for your own correlation tracking). Omit it and a random UUID is generated. A supplied id
-   *       must be unique per run: this is not reissue dedup — a duplicate active id is rejected by the
-   *       backend, and a completed one is re-run.</li>
+   *       DurableAdvisor.INSTANCE_ID_KEY, "my-id"))} — to run this call under an id you choose. Omit it
+   *       and a fresh random UUID is generated per call (dapr-agents parity). A <b>supplied</b> id is
+   *       an <b>attach</b> handle, not a collision: repeating the same call with the same id attaches
+   *       to the existing instance — running → wait for it; completed → its recorded answer; failed →
+   *       its recorded failure. That is the retry/recovery mechanism (see {@link DurableRunner#attachOrRun}).
+   *       Supplied ids are bearer handles the app owns — guard them like a primary key.</li>
    *   <li><b>Output (always):</b> the effective id (supplied or generated) is echoed on success into
    *       {@code ChatClientResponse.context()} and {@code ChatResponse.getMetadata()} under this key,
    *       to correlate a call to its workflow (e.g. find it in the Diagrid dashboard).</li>
@@ -158,9 +160,12 @@ public final class DurableAdvisor implements CallAdvisor {
     List<MessageRecord> messages = codec.toRecords(request.prompt().getInstructions());
 
     // dapr-agents parity ("instance_id or uuid4()"): use a caller-supplied id if one is set on the
-    // request context, else a fresh random UUID — no dedup, no derivation. The id is echoed on
-    // success and carried on the typed timeout so a lost result can be looked up later.
-    String instanceId = resolveInstanceId(request);
+    // request context, else a fresh random UUID — no dedup, no derivation. A supplied id routes to
+    // attachOrRun (a repeat call attaches to the existing instance — the retry/recovery path); a
+    // generated id routes to run (schedules directly, no probe). The id is echoed on success and
+    // carried on the typed timeout so a repeat call can re-attach.
+    String suppliedId = suppliedInstanceId(request);
+    String instanceId = suppliedId != null ? suppliedId : UUID.randomUUID().toString();
 
     // Observe the blocking schedule+wait on the CALLER thread; the carrier captured inside the
     // observation scope is embedded in the workflow input so activity spans (on worker threads,
@@ -172,7 +177,9 @@ public final class DurableAdvisor implements CallAdvisor {
             carrier -> {
               AgentRequest agentRequest = new AgentRequest(messages, toolSpecs, options, carrier);
               try {
-                return runner.run(instanceId, agentRequest, workflowName);
+                return suppliedId != null
+                    ? runner.attachOrRun(instanceId, agentRequest, workflowName)
+                    : runner.run(instanceId, agentRequest, workflowName);
               } catch (DurableCallTimeoutException e) {
                 // Not a failure — the workflow is still running. Propagate UNWRAPPED (the observation
                 // records outcome=timeout) so callers can catch it by type and read the instance id.
@@ -189,13 +196,17 @@ public final class DurableAdvisor implements CallAdvisor {
     return new ChatClientResponse(toChatResponse(result, instanceId, workflowName), context);
   }
 
-  /** A caller-supplied instance id from the request context ({@link #INSTANCE_ID_KEY}), else a fresh UUID. */
-  private static String resolveInstanceId(ChatClientRequest request) {
+  /**
+   * A caller-supplied instance id from the request context ({@link #INSTANCE_ID_KEY}), or {@code null}
+   * if none was set (or it is blank). A non-null result routes the call to the attach path; null means
+   * generate a fresh UUID and schedule directly.
+   */
+  private static String suppliedInstanceId(ChatClientRequest request) {
     Object supplied = request.context().get(INSTANCE_ID_KEY);
     if (supplied != null && !supplied.toString().isBlank()) {
       return supplied.toString();
     }
-    return UUID.randomUUID().toString();
+    return null;
   }
 
   /**
