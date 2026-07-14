@@ -151,6 +151,7 @@ shared `dapr_redis` container) — inspectable in the **Diagrid dashboard** and 
 | `make test-manual-durability` | ManualDurabilityAgent | manual durability — needs the `dapr` profile |
 | `make test-manual-registry` | ManualRegistryAgent | manual registry — needs the `registry` profile |
 | `make test-manual-memory` | DurableMemoryConcierge | manual Dapr-backed memory — needs the `memory` profile |
+| `make test-crash` | CrashRecoveryAgent | crash recovery — kill the worker mid-call, re-attach by instance id (needs `dapr`) |
 
 ```bash
 curl "http://localhost:8080/travel/plan?origin=NYC&destination=Paris&date=2025-07-01&nights=5&interests=history,food"
@@ -196,6 +197,57 @@ for turns 2–3; `make test-chat-isolated` shows the isolation. Without a profil
 in-process; under the `memory` profile the `dapr-spring-ai-memory` starter backs `ChatMemory` with a
 Dapr state store (`agent-memory`), so conversations persist and survive restarts — inspect them with
 `make memory-list`.
+
+## Crash recovery (kill the worker mid-call)
+
+The durable path survives a hard crash of the app — which also hosts the in-process workflow worker.
+An in-flight `ChatClient.call()` resumes from its history on restart (completed LLM turns and tool
+calls are **not** re-run), and — because you scheduled it under an id **you** own — you re-attach to
+the resumed run and collect its result by simply re-issuing the same call.
+
+The `crashRecoveryAgent` books a reservation with a deliberately slow tool (~30s), and schedules the
+call under a caller-chosen id via `DurableAdvisor.INSTANCE_ID_KEY`. It is a **named `ChatClient` bean**
+(`CrashRecoveryAgentConfig`), so it runs under its own per-agent workflow name
+`spring-ai.crashRecoveryAgent.workflow` (visible in the dashboard / `dapr workflow list`) rather than
+the generic `spring-ai.workflow` — the name is assigned at build time by the bean name, and the worker
+only registers per-agent names for ChatClient *beans*. The tool (`SlowBookingTools`) is a **global
+`@Tool` bean** — not a per-call `.defaultTools(...)` tool — precisely so it is rediscovered on the
+fresh worker after the crash and the resumed activity can run it (a request-scoped tool would be gone
+after restart; this is the agent-scoped-vs-crash-safe tradeoff, see the library README):
+
+```
+GET  /crash/book?id=<your-id>&reference=<ref>   # book under your id (a repeat with it = attach)
+POST /crash/kill                                # SIGKILL the app — demo only
+```
+
+Needs the `dapr` profile + a sidecar. Step by step (start with `make run-dapr`, sidecar `make dapr`):
+
+```bash
+# 1. Terminal A — book under an id you own. Blocks ~30s while the tool "commits"; watch the app log
+#    for ">>> commitReservation(...) — committing over ~30s".
+make test-crash                 # GET /crash/book?id=trip-42&reference=ABC123
+
+# 2. Terminal B — during that window, SIGKILL the app (in-process worker + blocked caller both die):
+make crash-kill                 # POST /crash/kill  → the app process dies (curl sees a reset)
+
+# 3. Restart the app: make run-dapr
+#    The durable runtime resumes instance trip-42; the pre-crash LLM turn is not re-executed.
+
+# 4. Terminal A — re-issue the SAME call. It ATTACHES to the resumed run (waits if it is still
+#    committing, or returns the recorded answer if it already finished) — no second booking:
+make test-crash                 # same id → the SAME confirmation code
+```
+
+The confirmation code is derived from the reference, so an identical code on the re-issue is visible
+proof the booking was not redone. Because the re-issue is a normal successful call, the whole advisor
+chain applies (chat memory, etc.). Inspect the resumed run with `dapr workflow` or the Diagrid
+dashboard to see the completed activity was not re-executed.
+
+> The instance id is a **bearer handle** — an app exposing a retry endpoint should guard it like a
+> primary key. To re-run a spent id, purge it first (`DaprWorkflowClient.purgeWorkflow(id)`); a
+> purged/absent id runs fresh. Note this `id` is the **durability** instance id
+> (`DurableAdvisor.INSTANCE_ID_KEY`), unlike the `conversationId` above (chat-memory grouping) — it is
+> the retry/recovery contract from the library README's "Choosing your own instance id".
 
 ## Observability (distributed tracing)
 
@@ -306,10 +358,10 @@ travel-planner/
 │   └── application-{dapr,memory,registry,tracing,openai,conversation}.properties    opt-in profiles
 └── src/main/java/io/diagrid/springai/examples/travelplanner/
     ├── TravelPlannerApplication.java
-    ├── tools/              7 @Tool classes: 6 request-scoped (mock data + FlakyApiTools) + CurrencyTools (@Component = global, offered to every durable agent)
-    ├── agents/             8 ChatClient @Component agents (incl. TravelConcierge, BookingAgent)
+    ├── tools/              8 @Tool classes: 6 request-scoped (mock data + FlakyApiTools) + 2 global @Component (CurrencyTools, SlowBookingTools) offered to every durable agent (so they survive a worker restart)
+    ├── agents/             8 ChatClient @Component agents (incl. TravelConcierge, BookingAgent) + CrashRecoveryAgentConfig (the named `crashRecoveryAgent` @Bean → its own per-agent workflow name)
     │   └── manual/         manual-wiring agents: ManualDurabilityAgent, ManualRegistryAgent, DurableMemoryConcierge
     ├── registry/           RegistryAgents (ChatClient @Bean agents, discovered by the registry)
     ├── orchestration/      TravelOrchestrationService (app-layer patterns)
-    └── web/                TravelControllers + ConciergeController + RetryController + RegistryAgentController + ManualWiringController
+    └── web/                TravelControllers + ConciergeController + RetryController + CrashRecoveryController + RegistryAgentController + ManualWiringController
 ```
