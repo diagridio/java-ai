@@ -3,12 +3,14 @@ DAPR_GRPC := 40001
 DAPR_HTTP := 3500
 PROJECT   ?=
 MSG       ?= Where am I going on my trip?
+CRASH_ID  ?= trip-42
 
 .PHONY: dapr dapr-tracing run run-dapr run-dapr-tracing run-ollama run-conversation \
         run-dapr-conversation jaeger jaeger-stop \
         test-weather test-guide test-trip test-research test-refine \
         test-route-quick test-route-long test-travel test-chat test-chat-isolated test-retry \
-        test-packing test-budget registry-list memory-list catalyst-config redis-flush clean
+        test-crash crash-kill test-packing test-budget registry-list memory-list \
+        catalyst-config redis-flush clean
 
 ## Start the Dapr sidecar standalone (separate terminal). Export OPENAI_API_KEY first.
 ## The dapr-spring-ai starter runs the ChatClient agents as durable Dapr Workflows;
@@ -131,6 +133,19 @@ test-chat-isolated:
 test-retry:
 	@echo "— odd attempt throws → runtime retries → even attempt succeeds → completes —"
 	@curl -s "http://localhost:8080/retry-test?reference=ABC123"; echo
+
+## Crash-recovery demo (needs the `dapr` profile + sidecar). Books under an id you own (CRASH_ID);
+## the call blocks ~30s on the slow tool. In that window run `make crash-kill` from another terminal
+## to SIGKILL the app, then restart it (`make run-dapr`) and run `make test-crash` again with the
+## SAME id — it ATTACHES to the resumed run and returns the same confirmation, without booking twice.
+test-crash:
+	@echo "— booking under id=$(CRASH_ID); blocks ~30s. Run 'make crash-kill' now to test recovery —"
+	@curl -s "http://localhost:8080/crash/book?id=$(CRASH_ID)&reference=ABC123"; echo
+
+## SIGKILL the running app (in-process worker + blocked caller both die). Run while `make test-crash`
+## is mid-call; then restart with `make run-dapr` and re-issue `make test-crash` (same CRASH_ID).
+crash-kill:
+	@curl -s -X POST "http://localhost:8080/crash/kill" >/dev/null 2>&1 || true; echo "sent /crash/kill — the app process should now be dead"
 
 ## Agent-registry demo: two ChatClient *beans* (packingAssistant has a tool, budgetAdvisor has
 ## none). Both are registered with a thin record at startup; calling each endpoint enriches the
