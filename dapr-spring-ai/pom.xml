@@ -11,6 +11,33 @@
 
   <name>dapr-spring-ai</name>
   <description>Make Spring AI ChatClient calls durable across JVM restarts via Dapr Workflows</description>
+  <url>https://github.com/diagridio/java-ai</url>
+
+  <!-- Maven Central requires license, developer, and SCM metadata on every published artifact. These
+       are declared once here and inherited by the five library modules. -->
+  <licenses>
+    <license>
+      <name>Business Source License 1.1</name>
+      <url>https://github.com/diagridio/java-ai/blob/main/LICENSE.md</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>diagrid</id>
+      <name>Diagrid</name>
+      <organization>Diagrid</organization>
+      <organizationUrl>https://www.diagrid.io</organizationUrl>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/diagridio/java-ai.git</connection>
+    <developerConnection>scm:git:git@github.com:diagridio/java-ai.git</developerConnection>
+    <url>https://github.com/diagridio/java-ai</url>
+    <tag>HEAD</tag>
+  </scm>
 
   <properties>
     <maven.compiler.release>17</maven.compiler.release>
@@ -34,6 +61,11 @@
     <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
     <!-- Failsafe runs the `*IT` integration test; Surefire's default patterns never match `*IT`. -->
     <maven-failsafe-plugin.version>3.2.5</maven-failsafe-plugin.version>
+    <!-- Release-only plugins (Maven Central via the Sonatype Central Portal). Active under -Prelease. -->
+    <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
+    <maven-javadoc-plugin.version>3.11.2</maven-javadoc-plugin.version>
+    <maven-gpg-plugin.version>3.2.7</maven-gpg-plugin.version>
+    <central-publishing-maven-plugin.version>0.7.0</central-publishing-maven-plugin.version>
   </properties>
 
   <modules>
@@ -209,6 +241,84 @@
                 </goals>
               </execution>
             </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!-- `-Prelease`: sign and publish the five library modules (+ this parent POM) to Maven Central via
+         the Sonatype Central Portal. Off by default so the normal build stays fast and needs no GPG key.
+         The examples/ apps are standalone (not reactor modules) and are never published.
+
+         Prerequisites: a VERIFIED `io.diagrid` namespace on the Central Portal, a `central` server in
+         settings.xml holding a Portal user token, and a GPG signing key whose public half is on a
+         keyserver Central checks. Publish with `mvn -Prelease clean deploy`.
+
+         autoPublish=false uploads a STAGED deployment that a human reviews and releases in the Portal UI
+         — a published Central release cannot be undone. Flip to true once the process is trusted. -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>${maven-source-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>${maven-javadoc-plugin.version}</version>
+            <configuration>
+              <!-- Central requires a javadoc jar; it is not a doc-perfection gate. Don't let lint
+                   (missing @param, bad @link) fail the release. -->
+              <doclint>none</doclint>
+              <quiet>true</quiet>
+              <failOnError>false</failOnError>
+            </configuration>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>${maven-gpg-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>${central-publishing-maven-plugin.version}</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>false</autoPublish>
+              <!-- Block the build until Central finishes validating the upload, so CI fails on a bad
+                   deployment instead of reporting success on an upload that never validated. -->
+              <waitUntil>validated</waitUntil>
+            </configuration>
           </plugin>
         </plugins>
       </build>

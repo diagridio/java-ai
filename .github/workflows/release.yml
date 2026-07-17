@@ -1,0 +1,77 @@
+name: release
+
+# Manual, controlled publish of the library to Maven Central (Sonatype Central Portal).
+# You pick the version; the workflow stamps it onto every module, runs the full unit-test +
+# static-analysis gate, builds source & javadoc jars, GPG-signs everything, and uploads a STAGED
+# deployment. Nothing becomes public until you click Publish in the Portal UI (autoPublish=false in
+# the `release` profile) — a published Central release cannot be undone.
+#
+# One-time, org-level prerequisites (NOT in this repo):
+#   - `io.diagrid` is a VERIFIED namespace on the Central Portal (https://central.sonatype.com).
+#   - Repository (or org) secrets:
+#       CENTRAL_TOKEN_USERNAME / CENTRAL_TOKEN_PASSWORD  the two halves of a Central Portal user token
+#           (central.sonatype.com -> Account -> Generate User Token) — NOT your Sonatype login.
+#       GPG_PRIVATE_KEY   ASCII-armored private key: `gpg --armor --export-secret-keys <keyid>`.
+#       GPG_PASSPHRASE    that key's passphrase.
+#     The matching PUBLIC key must be on a keyserver Central checks (e.g. keys.openpgp.org).
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: 'Release version, no -SNAPSHOT (e.g. 0.1.0)'
+        required: true
+        default: '0.1.0'
+
+# Least privilege: the job only reads the repo and pushes artifacts to Central over HTTPS.
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    defaults:
+      run:
+        working-directory: dapr-spring-ai
+    steps:
+      - name: Check out
+        uses: actions/checkout@v4
+
+      # JDK 17: the artifacts target release 17 and the static-analysis plugins (Checkstyle/SpotBugs/PMD)
+      # are pinned to run on 17. setup-java also writes a settings.xml with a `central` server (mapped to
+      # the env vars below) and imports the GPG key so maven-gpg-plugin can sign headlessly.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+          server-id: central
+          server-username: CENTRAL_TOKEN_USERNAME
+          server-password: CENTRAL_TOKEN_PASSWORD
+          gpg-private-key: ${{ secrets.GPG_PRIVATE_KEY }}
+          gpg-passphrase: MAVEN_GPG_PASSPHRASE
+
+      # Stamp the release version onto the parent + all modules. Ephemeral to this run (not committed);
+      # inter-module deps use ${project.version}, so they track it automatically.
+      - name: Set release version ${{ inputs.version }}
+        run: mvn -B versions:set -DnewVersion=${{ inputs.version }} -DprocessAllModules -DgenerateBackupPoms=false
+
+      # clean deploy under -Prelease runs the unit tests + static analysis, builds the source & javadoc
+      # jars, GPG-signs, and uploads a staged deployment to the Central Portal (autoPublish=false, so it
+      # waits for your manual Publish). Heavy integration ITs stay excluded (they need Docker + Ollama).
+      - name: Build, sign, and publish to Maven Central
+        run: mvn -B -Prelease clean deploy
+        env:
+          CENTRAL_TOKEN_USERNAME: ${{ secrets.CENTRAL_TOKEN_USERNAME }}
+          CENTRAL_TOKEN_PASSWORD: ${{ secrets.CENTRAL_TOKEN_PASSWORD }}
+          MAVEN_GPG_PASSPHRASE: ${{ secrets.GPG_PASSPHRASE }}
+
+      # On failure, keep the surefire reports so a test/analysis breakage is diagnosable from the run page.
+      - name: Upload surefire reports
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: surefire-reports
+          path: 'dapr-spring-ai/**/target/surefire-reports/**'
+          if-no-files-found: ignore
