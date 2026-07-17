@@ -68,7 +68,7 @@
 
     <!-- THE ONLY THING THAT MAKES IT DURABLE: add the dependency, change no code. -->
     <dependency>
-      <groupId>io.diagrid</groupId>
+      <groupId>io.diagrid.dapr</groupId>
       <artifactId>dapr-spring-ai-starter</artifactId>
       <version>0.1.0-SNAPSHOT</version>
     </dependency>

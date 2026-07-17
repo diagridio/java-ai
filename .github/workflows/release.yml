@@ -7,7 +7,7 @@ name: release
 # the `release` profile) — a published Central release cannot be undone.
 #
 # One-time, org-level prerequisites (NOT in this repo):
-#   - `io.diagrid` is a VERIFIED namespace on the Central Portal (https://central.sonatype.com).
+#   - `io.diagrid.dapr` is a VERIFIED namespace on the Central Portal (https://central.sonatype.com).
 #   - Repository (or org) secrets:
 #       CENTRAL_TOKEN_USERNAME / CENTRAL_TOKEN_PASSWORD  the two halves of a Central Portal user token
 #           (central.sonatype.com -> Account -> Generate User Token) — NOT your Sonatype login.
