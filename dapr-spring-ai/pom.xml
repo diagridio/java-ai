@@ -61,6 +61,8 @@
     <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
     <!-- Failsafe runs the `*IT` integration test; Surefire's default patterns never match `*IT`. -->
     <maven-failsafe-plugin.version>3.2.5</maven-failsafe-plugin.version>
+    <!-- Pinned so the license-bundling execution below doesn't run on the ancient lifecycle default. -->
+    <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
     <!-- Release-only plugins (Maven Central via the Sonatype Central Portal). Active under -Prelease. -->
     <maven-source-plugin.version>3.3.1</maven-source-plugin.version>
     <maven-javadoc-plugin.version>3.11.2</maven-javadoc-plugin.version>
@@ -104,6 +106,36 @@
     <!-- Static analysis, inherited by the code modules (core, starter). Config files live at the
          multi-module root so every module resolves the same absolute path. Runs on JDK 17. -->
     <plugins>
+      <!-- Bundle the repo LICENSE into every module jar's META-INF, so the BSL text travels with each
+           published artifact ("conspicuously display this License on each copy"). LICENSE.md lives at
+           the git-repo root, one level above the reactor root (maven.multiModuleProjectDirectory, the
+           same anchor the static-analysis config files use). Harmless on the pom-packaged parent (no
+           jar is produced). Runs in every build, not just -Prelease. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>${maven-resources-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>bundle-license</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.outputDirectory}/META-INF</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${maven.multiModuleProjectDirectory}/..</directory>
+                  <includes>
+                    <include>LICENSE.md</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
       <plugin>
         <groupId>org.apache.maven.plugins</groupId>
         <artifactId>maven-checkstyle-plugin</artifactId>
