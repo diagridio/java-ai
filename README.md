@@ -17,6 +17,32 @@ progress is checkpointed by the Dapr runtime. If the process crashes
 mid-conversation, the workflow resumes from the last completed step instead
 of replaying the whole interaction or losing it.
 
+## Getting started
+
+Add the Spring Boot starter — it makes every Spring-managed `ChatClient.call()`
+durable with no application-code changes:
+
+```xml
+<dependency>
+  <groupId>io.diagrid.dapr</groupId>
+  <artifactId>dapr-spring-ai-starter</artifactId>
+  <version>0.1.0</version>
+</dependency>
+```
+
+The other modules are optional and independent — add whichever you need (same
+`io.diagrid.dapr` group and version):
+
+| Artifact | What it adds |
+|---|---|
+| `dapr-spring-ai-starter` | durable `ChatClient` over Dapr Workflows — the one you usually want |
+| `dapr-spring-ai-agent-registry` | auto-publish agents to a Dapr state store for discovery |
+| `dapr-spring-ai-memory` | durable chat memory backed by a Dapr state store |
+| `dapr-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
+
+All are on Maven Central and need a Dapr sidecar with the workflow building block
+enabled — see [Requirements](#requirements) for JDK and runtime notes.
+
 ## Wiring: build from the Spring-managed `ChatClient.Builder`
 
 Durability is applied by a Spring AI `CallAdvisor` that the starter attaches via a
@@ -200,8 +226,8 @@ A single generic orchestrator runs every call, but it is registered under
 (so a bean named `weatherAssistant` runs under
 `spring-ai.weatherAssistant.workflow`), **plus a generic fallback**
 `spring-ai.workflow` for `ChatClient`s built inline (not beans). The
-`.workflow` suffix and `dapr.<framework>.<agent>` shape are what let tooling like
-the Diagrid dashboard correlate an agent to its workflows.
+`.workflow` suffix is what lets tooling like the Diagrid dashboard correlate an
+agent to its workflows.
 
 This stays zero-code: the names come from your bean names, discovered at startup
 (durabletask requires every workflow name to be registered before it can be
