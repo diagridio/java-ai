@@ -79,13 +79,12 @@ See **[`dapr-spring-ai-starter/README.md`](dapr-spring-ai/dapr-spring-ai-starter
 short cookbook on defining agents — the two shapes (`@Component` vs `@Bean`), the hybrid pattern,
 tool crash-safety, and the wait-budget timeout behaviour.
 
-## Execution identity (dapr-agents parity)
+## Execution identity
 
 Every `ChatClient.call()` on the durable path schedules a **new** workflow
-instance under a fresh `UUID.randomUUID()` — the same execution model as Dapr
-Agents (Python), which schedules each run under a random uuid. There is **no**
-dedup, no content hashing, and no reattach-by-content: a retried or duplicated
-call is a new execution.
+instance under a fresh `UUID.randomUUID()`. There is **no** dedup, no content
+hashing, and no reattach-by-content: a retried or duplicated call is a new
+execution.
 
 **What durability still guarantees**
 
@@ -129,7 +128,7 @@ while (answer == null) {
 ```
 
 **Choosing your own instance id → retry / recovery (optional).** Omit the id and
-each call runs under a fresh random UUID (dapr-agents parity — no dedup). Supply an
+each call runs under a fresh random UUID (no dedup). Supply an
 id you own and it becomes an **attach handle**: a repeated call with the same id
 attaches to the existing instance instead of colliding with it. Set it as an
 advisor param; it is echoed back on the response under the same key:
@@ -167,12 +166,11 @@ key. To re-run a spent id, purge it first via the injectable `DaprWorkflowClient
 daprWorkflowClient.purgeWorkflow(myId);  // then a fresh call with myId runs anew
 ```
 
-> **Consistency with Dapr Agents.** The default (generated id) is the same
-> execution-identity contract as Dapr Agents: a fresh id per run, no reissue dedup.
-> The caller-supplied-id attach is a small, deliberate superset for recovery — and
-> an interim one: these semantics are expected to move into the Dapr runtime, so
-> the library adds **no** new contract for them (no metadata keys, flags, or
-> policies — just a repeated client call).
+> **On the contract.** The default (generated id) is a fresh id per run with no
+> reissue dedup. The caller-supplied-id attach is a small, deliberate superset for
+> recovery — and an interim one: these semantics are expected to move into the Dapr
+> runtime, so the library adds **no** new contract for them (no metadata keys, flags,
+> or policies — just a repeated client call).
 
 ### Configuration
 
@@ -186,7 +184,7 @@ have their own tables in the sections below):
 | `dapr.spring-ai.max-iterations` | `20` | hard cap on LLM turns per call; the workflow fails if the model still requests tools past it (guards against a runaway tool loop — stock Spring AI's loop is unbounded) |
 
 By default each call runs under its own fresh instance id, so there is nothing to
-configure about dedup — there is none (dapr-agents parity). A retry under a
+configure about dedup — there is none. A retry under a
 generated id is a new execution; make tool side effects idempotent (see the
 `taskExecutionId` note above). A retry under an id **you** supply attaches to the
 existing run instead — the recovery contract in *Choosing your own instance id*
@@ -257,9 +255,9 @@ call.)
 
 A caller's trace shows the durable call, and the LLM/tool activity spans nest
 under the **originating request's** trace — even though the activities execute on
-worker threads (possibly another replica). This mirrors Dapr Agents, which
-propagates the trace context through the workflow input and restores it
-activity-side; here it's done with Micrometer. Three layers join up:
+worker threads (possibly another replica). The trace context is propagated
+through the workflow input and restored activity-side, done here with Micrometer.
+Three layers join up:
 
 1. **Caller side** — the advisor wraps the blocking schedule+wait in a Micrometer
    `Observation` named `dapr.springai.durable.call` (tags: `workflow_name`,

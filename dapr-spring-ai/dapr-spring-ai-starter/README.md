@@ -65,7 +65,7 @@ partly trade off today.
 
 ### Wait-budget timeout and retry
 
-By default each call runs under a fresh random workflow instance id (dapr-agents parity — no dedup,
+By default each call runs under a fresh random workflow instance id (no dedup,
 no content hashing). A call blocks only for `dapr.spring-ai.completion-timeout`; if that elapses the
 workflow keeps running and the call throws `DurableCallTimeoutException` carrying the instance id —
 the timeout is a wait budget, not a failure. The id (and workflow name) are echoed on every
