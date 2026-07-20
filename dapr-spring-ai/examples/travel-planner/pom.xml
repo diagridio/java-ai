@@ -14,7 +14,7 @@
 
   <groupId>io.diagrid.dapr.springai.examples</groupId>
   <artifactId>travel-planner</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.2.0-SNAPSHOT</version>
   <name>travel-planner</name>
   <description>Example: full-stack Spring AI travel planner — pure by default, with optional Dapr durability, memory, and agent registry enabled via Spring profiles</description>
 
@@ -72,22 +72,22 @@
     <dependency>
       <groupId>io.diagrid.dapr</groupId>
       <artifactId>dapr-spring-ai-starter</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <version>0.2.0-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>io.diagrid.dapr</groupId>
       <artifactId>dapr-spring-ai-agent-registry</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <version>0.2.0-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>io.diagrid.dapr</groupId>
       <artifactId>dapr-spring-ai-memory</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <version>0.2.0-SNAPSHOT</version>
     </dependency>
     <dependency>
       <groupId>io.diagrid.dapr</groupId>
       <artifactId>dapr-spring-ai-conversation</artifactId>
-      <version>0.1.0-SNAPSHOT</version>
+      <version>0.2.0-SNAPSHOT</version>
     </dependency>
   </dependencies>
 
