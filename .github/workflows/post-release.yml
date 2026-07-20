@@ -103,29 +103,45 @@ jobs:
           java-version: '17'
           cache: maven
 
-      - name: Bump development version and open PR
+      - name: Bump development version (signed commit via GitHub API) and open PR
         run: |
           set -euo pipefail
           branch="chore/bump-${NEXT}"
-          git config user.name "github-actions[bot]"
-          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git checkout -b "${branch}"
 
-          # Current reactor version (before the bump) — used to also bump the standalone example
-          # apps, which are NOT reactor modules so versions:set won't touch them.
+          # Apply the bump in the working tree — NO local commit. versions:set covers the reactor;
+          # the standalone example apps aren't reactor modules, so bump their pinned versions by hand.
           current=$(cd dapr-spring-ai && mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
           echo "Bumping ${current} -> ${NEXT}"
-
           (cd dapr-spring-ai && mvn -B versions:set -DnewVersion="${NEXT}" -DprocessAllModules -DgenerateBackupPoms=false)
-
           esc_current=$(printf '%s' "${current}" | sed -e 's/[][\/.*^$]/\\&/g')
           esc_next=$(printf '%s' "${NEXT}" | sed -e 's/[\/&]/\\&/g')
           for pom in dapr-spring-ai/examples/*/pom.xml; do
             sed -i "s/${esc_current}/${esc_next}/g" "${pom}"
           done
 
-          git commit -am "chore: bump development version to ${NEXT}"
-          git push -u origin "${branch}"
+          # Create the branch at the current main head. The PR is opened AFTER the commit exists,
+          # so the branch is never a momentarily-empty PR that GitHub would auto-close.
+          head_oid=$(git rev-parse HEAD)
+          git push origin "HEAD:refs/heads/${branch}"
+
+          # Build fileChanges.additions (path + base64 contents) from the modified poms.
+          additions=$(git diff --name-only | while IFS= read -r f; do
+            jq -cn --arg path "$f" --arg contents "$(base64 -w0 -- "$f")" '{path:$path,contents:$contents}'
+          done | jq -sc '.')
+
+          # Create the commit via GitHub's API: it is signed server-side (Verified), authored by
+          # github-actions[bot]. No GPG key / keyserver / account setup, and it survives going public.
+          variables=$(jq -cn \
+            --arg repo "${GITHUB_REPOSITORY}" --arg branch "${branch}" \
+            --arg oid "${head_oid}" --arg headline "chore: bump development version to ${NEXT}" \
+            --argjson additions "${additions}" \
+            '{input:{branch:{repositoryNameWithOwner:$repo,branchName:$branch},
+                     message:{headline:$headline},
+                     expectedHeadOid:$oid,
+                     fileChanges:{additions:$additions}}}')
+          jq -cn --arg q 'mutation($input:CreateCommitOnBranchInput!){createCommitOnBranch(input:$input){commit{oid}}}' \
+                 --argjson v "${variables}" '{query:$q,variables:$v}' | gh api graphql --input -
+
           gh pr create --base main --head "${branch}" \
             --title "chore: bump development version to ${NEXT}" \
-            --body "Post-release bump after publishing **${VERSION}** to Maven Central (tagged \`v${VERSION}\`). Sets the reactor + example apps from \`${current}\` to \`${NEXT}\`."
+            --body "Post-release bump after publishing **${VERSION}** to Maven Central (tagged \`v${VERSION}\`). Sets the reactor + example apps from \`${current}\` to \`${NEXT}\`. Commit created via the GitHub API, so it is signed/Verified."
