@@ -1,0 +1,131 @@
+name: post-release
+
+# Run this MANUALLY, once, AFTER you have Published a release in the Central Portal.
+# It publishes nothing. It records a release that actually went out:
+#   1. verifies the version is live on Maven Central (guards against a dropped deployment),
+#   2. tags the exact commit that was released,
+#   3. opens a PR bumping main (+ the example apps) to the next -SNAPSHOT dev version.
+#
+# Why separate from release.yml: release.yml only uploads a STAGED deployment; whether it
+# becomes public is a manual Portal decision that can be a DROP. Tagging inside release.yml
+# would tag releases that were never published. This workflow runs only after a real publish
+# and re-checks Central before tagging, so a dropped/never-published version can't get a tag.
+#
+# Prerequisites:
+#   - The version is already Published AND has propagated to Maven Central (can take minutes).
+#   - Org setting "Allow GitHub Actions to create and approve pull requests"
+#     (Settings > Actions > General) must be ON for the bump-PR step to work with GITHUB_TOKEN.
+#     NOTE: a PR opened by GITHUB_TOKEN does NOT trigger other workflows (e.g. build.yml). If you
+#     want CI to run on the bump PR, either re-push a commit to it, or swap GH_TOKEN below for a
+#     PAT secret with repo + workflow scope.
+
+on:
+  workflow_dispatch:
+    inputs:
+      released_version:
+        description: 'Version just published to Central (tag will be v<this>), e.g. 0.1.0'
+        required: true
+      next_development_version:
+        description: 'Next development version for main, e.g. 0.2.0-SNAPSHOT'
+        required: true
+      release_commit:
+        description: 'Optional commit SHA that was released. Default: head of the latest successful release run.'
+        required: false
+        default: ''
+
+# Least privilege: push a tag + a bump branch, open a PR, read workflow runs. Never writes to main.
+permissions:
+  contents: write
+  pull-requests: write
+  actions: read
+
+jobs:
+  post-release:
+    runs-on: ubuntu-latest
+    env:
+      GH_TOKEN: ${{ github.token }}
+      VERSION: ${{ inputs.released_version }}
+      NEXT: ${{ inputs.next_development_version }}
+    steps:
+      - name: Check out main (full history so the tag can point at the released commit)
+        uses: actions/checkout@v4
+        with:
+          ref: main
+          fetch-depth: 0
+
+      # Guard: only proceed if the release is genuinely on Maven Central. This is what makes the
+      # workflow safe against a dropped staged deployment — a version that was never published
+      # (or hasn't propagated yet) fails here instead of getting a tag.
+      - name: Verify the version is published on Maven Central
+        run: |
+          set -euo pipefail
+          url="https://repo1.maven.org/maven2/io/diagrid/dapr/dapr-spring-ai-parent/${VERSION}/dapr-spring-ai-parent-${VERSION}.pom"
+          echo "Checking $url"
+          code=$(curl -sS -o /dev/null -w '%{http_code}' "$url" || echo 000)
+          if [ "$code" != "200" ]; then
+            echo "::error::io.diagrid.dapr:dapr-spring-ai-parent:${VERSION} not found on Maven Central (HTTP $code). Publish it and wait for propagation before running post-release."
+            exit 1
+          fi
+          echo "Found on Central ✓"
+
+      # The released commit is the commit release.yml built from: an explicit input, else the head
+      # SHA of the most recent SUCCESSFUL release run.
+      - name: Resolve the released commit
+        id: commit
+        run: |
+          set -euo pipefail
+          sha="${{ inputs.release_commit }}"
+          if [ -z "$sha" ]; then
+            sha=$(gh run list --workflow=release.yml --status=success --limit 1 --json headSha --jq '.[0].headSha')
+          fi
+          if [ -z "$sha" ]; then echo "::error::could not resolve a released commit"; exit 1; fi
+          git cat-file -e "${sha}^{commit}" || { echo "::error::commit $sha not found in this checkout"; exit 1; }
+          echo "sha=$sha" >> "$GITHUB_OUTPUT"
+          echo "Released commit: $sha"
+
+      - name: Create and push tag v${{ inputs.released_version }}
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          if git ls-remote --exit-code --tags origin "refs/tags/${tag}" >/dev/null 2>&1; then
+            echo "::error::tag ${tag} already exists on origin"; exit 1
+          fi
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git tag -a "${tag}" "${{ steps.commit.outputs.sha }}" -m "Release ${tag}"
+          git push origin "${tag}"
+          echo "Tagged ${tag} -> ${{ steps.commit.outputs.sha }}"
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: maven
+
+      - name: Bump development version and open PR
+        run: |
+          set -euo pipefail
+          branch="chore/bump-${NEXT}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "${branch}"
+
+          # Current reactor version (before the bump) — used to also bump the standalone example
+          # apps, which are NOT reactor modules so versions:set won't touch them.
+          current=$(cd dapr-spring-ai && mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
+          echo "Bumping ${current} -> ${NEXT}"
+
+          (cd dapr-spring-ai && mvn -B versions:set -DnewVersion="${NEXT}" -DprocessAllModules -DgenerateBackupPoms=false)
+
+          esc_current=$(printf '%s' "${current}" | sed -e 's/[][\/.*^$]/\\&/g')
+          esc_next=$(printf '%s' "${NEXT}" | sed -e 's/[\/&]/\\&/g')
+          for pom in dapr-spring-ai/examples/*/pom.xml; do
+            sed -i "s/${esc_current}/${esc_next}/g" "${pom}"
+          done
+
+          git commit -am "chore: bump development version to ${NEXT}"
+          git push -u origin "${branch}"
+          gh pr create --base main --head "${branch}" \
+            --title "chore: bump development version to ${NEXT}" \
+            --body "Post-release bump after publishing **${VERSION}** to Maven Central (tagged \`v${VERSION}\`). Sets the reactor + example apps from \`${current}\` to \`${NEXT}\`."
