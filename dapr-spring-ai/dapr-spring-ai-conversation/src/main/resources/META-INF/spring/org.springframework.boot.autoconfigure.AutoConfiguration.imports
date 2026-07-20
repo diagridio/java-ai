@@ -1,1 +1,1 @@
-io.diagrid.springai.conversation.boot.DaprConversationAutoConfiguration
+io.diagrid.dapr.springai.conversation.boot.DaprConversationAutoConfiguration

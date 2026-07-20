@@ -20,4 +20,4 @@ dapr:
 
 logging:
   level:
-    io.diagrid.springai: INFO
+    io.diagrid.dapr.springai: INFO

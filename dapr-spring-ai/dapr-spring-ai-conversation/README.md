@@ -38,7 +38,7 @@ in preview on the Dapr side:
 
 ```xml
 <dependency>
-  <groupId>io.diagrid</groupId>
+  <groupId>io.diagrid.dapr</groupId>
   <artifactId>dapr-spring-ai-conversation</artifactId>
 </dependency>
 ```

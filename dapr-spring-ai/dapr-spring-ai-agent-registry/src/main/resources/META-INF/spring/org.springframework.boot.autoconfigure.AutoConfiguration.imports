@@ -1,1 +1,1 @@
-io.diagrid.springai.registry.boot.AgentRegistryAutoConfiguration
+io.diagrid.dapr.springai.registry.boot.AgentRegistryAutoConfiguration

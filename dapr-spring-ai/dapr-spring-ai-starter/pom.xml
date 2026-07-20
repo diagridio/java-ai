@@ -5,7 +5,7 @@
   <modelVersion>4.0.0</modelVersion>
 
   <parent>
-    <groupId>io.diagrid</groupId>
+    <groupId>io.diagrid.dapr</groupId>
     <artifactId>dapr-spring-ai-parent</artifactId>
     <version>0.1.0-SNAPSHOT</version>
   </parent>
@@ -16,7 +16,7 @@
 
   <dependencies>
     <dependency>
-      <groupId>io.diagrid</groupId>
+      <groupId>io.diagrid.dapr</groupId>
       <artifactId>dapr-spring-ai-core</artifactId>
       <version>${project.version}</version>
     </dependency>

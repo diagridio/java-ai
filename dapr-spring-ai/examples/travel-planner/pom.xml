@@ -12,7 +12,7 @@
     <relativePath/>
   </parent>
 
-  <groupId>io.diagrid.springai.examples</groupId>
+  <groupId>io.diagrid.dapr.springai.examples</groupId>
   <artifactId>travel-planner</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <name>travel-planner</name>
@@ -70,22 +70,22 @@
     <!-- Dapr integration — all opt-in via the dapr / memory / registry Spring profiles (see README);
          with no profile active none of these auto-configure and the app is plain Spring AI. -->
     <dependency>
-      <groupId>io.diagrid</groupId>
+      <groupId>io.diagrid.dapr</groupId>
       <artifactId>dapr-spring-ai-starter</artifactId>
       <version>0.1.0-SNAPSHOT</version>
     </dependency>
     <dependency>
-      <groupId>io.diagrid</groupId>
+      <groupId>io.diagrid.dapr</groupId>
       <artifactId>dapr-spring-ai-agent-registry</artifactId>
       <version>0.1.0-SNAPSHOT</version>
     </dependency>
     <dependency>
-      <groupId>io.diagrid</groupId>
+      <groupId>io.diagrid.dapr</groupId>
       <artifactId>dapr-spring-ai-memory</artifactId>
       <version>0.1.0-SNAPSHOT</version>
     </dependency>
     <dependency>
-      <groupId>io.diagrid</groupId>
+      <groupId>io.diagrid.dapr</groupId>
       <artifactId>dapr-spring-ai-conversation</artifactId>
       <version>0.1.0-SNAPSHOT</version>
     </dependency>

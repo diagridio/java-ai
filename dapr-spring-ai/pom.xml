@@ -4,7 +4,7 @@
          xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
   <modelVersion>4.0.0</modelVersion>
 
-  <groupId>io.diagrid</groupId>
+  <groupId>io.diagrid.dapr</groupId>
   <artifactId>dapr-spring-ai-parent</artifactId>
   <version>0.1.0-SNAPSHOT</version>
   <packaging>pom</packaging>
@@ -282,7 +282,7 @@
          the Sonatype Central Portal. Off by default so the normal build stays fast and needs no GPG key.
          The examples/ apps are standalone (not reactor modules) and are never published.
 
-         Prerequisites: a VERIFIED `io.diagrid` namespace on the Central Portal, a `central` server in
+         Prerequisites: a VERIFIED `io.diagrid.dapr` namespace on the Central Portal, a `central` server in
          settings.xml holding a Portal user token, and a GPG signing key whose public half is on a
          keyserver Central checks. Publish with `mvn -Prelease clean deploy`.
 

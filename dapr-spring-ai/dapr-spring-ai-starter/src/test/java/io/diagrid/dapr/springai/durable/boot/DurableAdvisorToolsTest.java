@@ -1,0 +1,452 @@
+package io.diagrid.dapr.springai.durable.boot;
+
+import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
+import static org.junit.jupiter.api.Assertions.assertNotEquals;
+import static org.junit.jupiter.api.Assertions.assertThrows;
+import static org.junit.jupiter.api.Assertions.assertTrue;
+
+import io.diagrid.dapr.springai.durable.client.DurableCallTimeoutException;
+import io.diagrid.dapr.springai.durable.client.DurableRunner;
+import io.diagrid.dapr.springai.durable.conversation.MessageCodec;
+import io.diagrid.dapr.springai.durable.workflow.AgentRequest;
+import io.diagrid.dapr.springai.durable.workflow.AgentResult;
+import io.diagrid.dapr.springai.durable.workflow.AgentWorkflow;
+import io.diagrid.dapr.springai.durable.workflow.ChatOptionsSpec;
+import io.diagrid.dapr.springai.durable.workflow.TokenUsage;
+import io.diagrid.dapr.springai.durable.workflow.ToolSpec;
+import java.time.Duration;
+import java.util.HashMap;
+import java.util.List;
+import java.util.Map;
+import java.util.concurrent.atomic.AtomicReference;
+import org.junit.jupiter.api.Test;
+import org.springframework.ai.chat.client.ChatClientRequest;
+import org.springframework.ai.chat.client.ChatClientResponse;
+import org.springframework.ai.chat.client.advisor.api.CallAdvisor;
+import org.springframework.ai.chat.client.advisor.api.CallAdvisorChain;
+import org.springframework.ai.chat.messages.UserMessage;
+import org.springframework.ai.chat.metadata.Usage;
+import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.prompt.Prompt;
+import org.springframework.ai.model.tool.ToolCallingChatOptions;
+import org.springframework.ai.support.ToolCallbacks;
+import org.springframework.ai.tool.ToolCallback;
+import org.springframework.ai.tool.annotation.Tool;
+import org.springframework.context.annotation.AnnotationConfigApplicationContext;
+import org.springframework.core.Ordered;
+
+/**
+ * Verifies the bug fix: {@link DurableAdvisor} advertises request-scoped tools (from the prompt's
+ * {@code ToolCallingChatOptions.getToolCallbacks()}) merged with globally discovered {@code @Tool}
+ * beans, and registers the request callbacks so the workflow can execute them.
+ */
+class DurableAdvisorToolsTest {
+
+  /** A request-scoped tool, supplied per-ChatClient (e.g. via {@code .defaultTools(new WeatherTools())}). */
+  static class WeatherTools {
+    @Tool(description = "Get the current weather for a city")
+    public String getWeather(String city) {
+      return city + ": 22C, partly cloudy";
+    }
+  }
+
+  /** A global @Tool bean, discovered at startup. */
+  static class CurrencyTools {
+    @Tool(description = "Convert an amount between currencies")
+    public String convert(String query) {
+      return "42 USD";
+    }
+  }
+
+  /** Captures the AgentRequest (and workflow name + instance id) the advisor hands to the workflow. */
+  static class CapturingRunner extends DurableRunner {
+    AgentRequest captured;
+    String capturedWorkflowName;
+    String capturedInstanceId;
+    boolean lastCallWasAttach;
+    AgentResult result = new AgentResult("FINAL", null, null, null, null, 1);
+    RuntimeException toThrow;
+
+    CapturingRunner() {
+      super(null, Duration.ofSeconds(1));
+    }
+
+    @Override
+    public AgentResult run(String instanceId, AgentRequest request, String workflowName) {
+      this.lastCallWasAttach = false;
+      return capture(instanceId, request, workflowName);
+    }
+
+    @Override
+    public AgentResult attachOrRun(String instanceId, AgentRequest request, String workflowName) {
+      this.lastCallWasAttach = true;
+      return capture(instanceId, request, workflowName);
+    }
+
+    private AgentResult capture(String instanceId, AgentRequest request, String workflowName) {
+      this.captured = request;
+      this.capturedWorkflowName = workflowName;
+      this.capturedInstanceId = instanceId;
+      if (toThrow != null) {
+        throw toThrow;
+      }
+      return result;
+    }
+  }
+
+  private DiscoveredTools globalToolsWithCurrency() {
+    AnnotationConfigApplicationContext context = new AnnotationConfigApplicationContext();
+    context.registerBean(CurrencyTools.class);
+    context.refresh();
+    DiscoveredTools tools = new DiscoveredTools();
+    tools.populate(context);
+    return tools;
+  }
+
+  private ChatClientRequest requestWithTools(Object... toolObjects) {
+    ToolCallingChatOptions options =
+        ToolCallingChatOptions.builder().toolCallbacks(ToolCallbacks.from(toolObjects)).build();
+    Prompt prompt = new Prompt(List.of(new UserMessage("what is the weather in Paris?")), options);
+    return new ChatClientRequest(prompt, new HashMap<>());
+  }
+
+  @Test
+  void perAgentAdvisorUsesBeanNameAndOutranksGeneric() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor generic = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+    DurableAdvisor perAgent =
+        new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec(), "weatherAssistant");
+
+    generic.adviseCall(requestWithTools(), null);
+    assertEquals(AgentWorkflow.NAME, runner.capturedWorkflowName, "generic advisor uses the shared name");
+    assertEquals(Ordered.LOWEST_PRECEDENCE - 1, generic.getOrder());
+
+    perAgent.adviseCall(requestWithTools(), null);
+    assertEquals("weatherAssistant", runner.capturedWorkflowName, "per-agent advisor uses the given name");
+    assertEquals(Ordered.LOWEST_PRECEDENCE - 2, perAgent.getOrder());
+    assertTrue(perAgent.getOrder() < generic.getOrder(), "per-agent advisor must win by precedence");
+
+    assertEquals("DaprDurableAdvisor", generic.getName(), "generic advisor keeps the base name");
+    assertEquals("DaprDurableAdvisor[weatherAssistant]", perAgent.getName(),
+        "per-agent advisor name includes the workflow name for traceability");
+
+    assertEquals("spring-ai.weatherAssistant.workflow",
+        DurableChatClientBeanPostProcessor.workflowName("weatherAssistant"),
+        "per-agent workflow name follows the dapr-agents convention (contains .workflow)");
+  }
+
+  @Test
+  void requestScopedToolIsAdvertisedExecutableAndMergedWithGlobal() {
+    DiscoveredTools tools = globalToolsWithCurrency();
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, tools, new MessageCodec());
+
+    String result = advisor.adviseCall(requestWithTools(new WeatherTools()), null).chatResponse()
+        .getResult().getOutput().getText();
+    assertEquals("FINAL", result);
+
+    List<String> advertised = runner.captured.toolSpecs().stream().map(ToolSpec::name).toList();
+    assertTrue(advertised.contains("getWeather"), "request-scoped tool must be advertised: " + advertised);
+    assertTrue(advertised.contains("convert"), "global @Tool bean must still be advertised: " + advertised);
+
+    // The request tool must be executable by the workflow's tool activity (registered by name).
+    // (Argument binding is Spring AI's concern; here we only assert the call routes and runs.)
+    assertTrue(tools.registry().has("getWeather"));
+    assertTrue(
+        tools.registry().invoke("getWeather", "{\"city\":\"Paris\"}").contains("22C, partly cloudy"),
+        "request tool must be executable via the registry");
+  }
+
+  @Test
+  void withoutRequestToolsOnlyGlobalToolsAreAdvertised() {
+    DiscoveredTools tools = globalToolsWithCurrency();
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, tools, new MessageCodec());
+
+    advisor.adviseCall(requestWithTools(), null); // no request-scoped tools
+
+    List<String> advertised = runner.captured.toolSpecs().stream().map(ToolSpec::name).toList();
+    assertTrue(advertised.contains("convert"));
+    assertFalse(advertised.contains("getWeather"), "an agent that did not register WeatherTools must not be offered it");
+  }
+
+  /**
+   * Fidelity: the whole portable ChatOptions surface (not just model + temperature) is captured and
+   * carried to the workflow, so options like maxTokens/topP/stopSequences are not silently dropped.
+   */
+  @Test
+  void fullPortableChatOptionsAreCarriedToTheWorkflow() {
+    DiscoveredTools tools = new DiscoveredTools();
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, tools, new MessageCodec());
+
+    ToolCallingChatOptions options =
+        ToolCallingChatOptions.builder()
+            .model("gpt-4o")
+            .temperature(0.3)
+            .maxTokens(512)
+            .topP(0.9)
+            .topK(40)
+            .frequencyPenalty(0.5)
+            .presencePenalty(0.25)
+            .stopSequences(List.of("STOP"))
+            .build();
+    Prompt prompt = new Prompt(List.of(new UserMessage("plan a trip")), options);
+
+    advisor.adviseCall(new ChatClientRequest(prompt, new HashMap<>()), null);
+
+    ChatOptionsSpec spec = runner.captured.options();
+    assertEquals("gpt-4o", spec.model());
+    assertEquals(Double.valueOf(0.3), spec.temperature());
+    assertEquals(Integer.valueOf(512), spec.maxTokens());
+    assertEquals(Double.valueOf(0.9), spec.topP());
+    assertEquals(Integer.valueOf(40), spec.topK());
+    assertEquals(Double.valueOf(0.5), spec.frequencyPenalty());
+    assertEquals(Double.valueOf(0.25), spec.presencePenalty());
+    assertEquals(List.of("STOP"), spec.stopSequences());
+  }
+
+  /** Regression: a tool-less agent's options return null (not []) from getToolCallbacks(). */
+  @Test
+  void nullToolCallbacksAdvertisesNoToolsWithoutNpe() {
+    DiscoveredTools tools = new DiscoveredTools(); // no global @Tool beans, like ItineraryFormatter
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, tools, new MessageCodec());
+
+    Prompt prompt = new Prompt(List.of(new UserMessage("synthesize the itinerary")), new NullToolsOptions());
+    ChatClientRequest request = new ChatClientRequest(prompt, new HashMap<>());
+
+    // Must not NPE despite getToolCallbacks() == null.
+    String result =
+        advisor.adviseCall(request, null).chatResponse().getResult().getOutput().getText();
+    assertEquals("FINAL", result);
+    assertTrue(runner.captured.toolSpecs().isEmpty(), "a tool-less agent must advertise zero tools");
+  }
+
+  @Test
+  void shadowedAdvisorNamesFlagsStrandedAdvisorsButNotOwnKind() {
+    CapturingRunner runner = new CapturingRunner();
+    // Per-agent advisor at LOWEST_PRECEDENCE-2; the generic durable advisor at LOWEST_PRECEDENCE-1
+    // sits after it but is our own kind, so it must not be flagged.
+    DurableAdvisor perAgent =
+        new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec(), "weatherAssistant");
+    DurableAdvisor generic = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+    CallAdvisor before = advisorAt("memory", Ordered.HIGHEST_PRECEDENCE);
+    CallAdvisor stranded = advisorAt("logging", Ordered.LOWEST_PRECEDENCE);
+
+    List<String> shadowed =
+        perAgent.shadowedAdvisorNames(List.of(before, perAgent, generic, stranded));
+
+    assertEquals(List.of("logging"), shadowed,
+        "only a non-durable advisor ordered after the terminal durable advisor should be flagged");
+  }
+
+  @Test
+  void chatResponseExposesUsageFinishReasonAndModel() {
+    CapturingRunner runner = new CapturingRunner();
+    runner.result = new AgentResult("done", "stop", new TokenUsage(10, 5, 15), "gpt-4o", "resp-9", 2);
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    ChatResponse response = advisor.adviseCall(requestWithTools(), null).chatResponse();
+
+    assertEquals("done", response.getResult().getOutput().getText());
+    assertEquals("stop", response.getResult().getMetadata().getFinishReason());
+    assertEquals("gpt-4o", response.getMetadata().getModel());
+    assertEquals("resp-9", response.getMetadata().getId());
+    Usage usage = response.getMetadata().getUsage();
+    assertEquals(10, usage.getPromptTokens().intValue());
+    assertEquals(5, usage.getCompletionTokens().intValue());
+    assertEquals(15, usage.getTotalTokens().intValue());
+  }
+
+  /** On success the workflow instance id + name are echoed in both the context and the metadata. */
+  @Test
+  void successEchoesInstanceIdAndWorkflowNameInContextAndMetadata() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor =
+        new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec(), "weatherAssistant");
+
+    ChatClientResponse response = advisor.adviseCall(requestWithTools(), null);
+
+    // The id the advisor generated is what it scheduled under.
+    String instanceId = runner.capturedInstanceId;
+    assertNotEquals(null, instanceId, "advisor must generate an instance id");
+
+    // Context echo.
+    assertEquals(instanceId, response.context().get(DurableAdvisor.INSTANCE_ID_KEY));
+    assertEquals("weatherAssistant", response.context().get(DurableAdvisor.WORKFLOW_NAME_KEY));
+
+    // Metadata echo.
+    assertEquals(
+        instanceId, response.chatResponse().getMetadata().get(DurableAdvisor.INSTANCE_ID_KEY));
+    assertEquals(
+        "weatherAssistant",
+        response.chatResponse().getMetadata().get(DurableAdvisor.WORKFLOW_NAME_KEY));
+  }
+
+  /** A {@link DurableCallTimeoutException} must propagate UNWRAPPED so callers can catch it by type. */
+  @Test
+  void timeoutPropagatesUnwrapped() {
+    CapturingRunner runner = new CapturingRunner();
+    runner.toThrow = new DurableCallTimeoutException("inst-123", "weatherAssistant", null);
+    DurableAdvisor advisor =
+        new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec(), "weatherAssistant");
+
+    DurableCallTimeoutException e =
+        assertThrows(
+            DurableCallTimeoutException.class, () -> advisor.adviseCall(requestWithTools(), null));
+    assertEquals("inst-123", e.instanceId());
+  }
+
+  /** Any other failure is wrapped in an IllegalStateException (not leaked raw). */
+  @Test
+  void otherFailuresAreWrapped() {
+    CapturingRunner runner = new CapturingRunner();
+    runner.toThrow = new RuntimeException("provider exploded");
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    assertThrows(IllegalStateException.class, () -> advisor.adviseCall(requestWithTools(), null));
+  }
+
+  /** Parity regression: two identical back-to-back calls schedule two DIFFERENT instance ids. */
+  @Test
+  void identicalCallsGetDistinctInstanceIds() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    advisor.adviseCall(requestWithTools(), null);
+    String first = runner.capturedInstanceId;
+    advisor.adviseCall(requestWithTools(), null);
+    String second = runner.capturedInstanceId;
+
+    assertNotEquals(first, second, "no dedup: each call is a fresh instance");
+  }
+
+  /**
+   * dapr-agents parity ("instance_id or uuid4()"): a caller-supplied id is used verbatim + echoed, and
+   * routes to the attach path (a repeat call attaches to the existing instance — the recovery contract).
+   */
+  @Test
+  void callerSuppliedInstanceIdIsUsedVerbatimAndRoutesToAttach() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    Map<String, Object> context = new HashMap<>();
+    context.put(DurableAdvisor.INSTANCE_ID_KEY, "my-correlation-id");
+    Prompt prompt = new Prompt(List.of(new UserMessage("hi")), ToolCallingChatOptions.builder().build());
+    ChatClientResponse response = advisor.adviseCall(new ChatClientRequest(prompt, context), null);
+
+    assertEquals("my-correlation-id", runner.capturedInstanceId, "caller-supplied id must be scheduled");
+    assertTrue(runner.lastCallWasAttach, "a supplied id must route to attachOrRun (the attach path)");
+    assertEquals(
+        "my-correlation-id",
+        response.context().get(DurableAdvisor.INSTANCE_ID_KEY),
+        "the effective id is echoed back under the same key");
+  }
+
+  /** A generated (default) id routes to run() — the direct-schedule path, no probe. */
+  @Test
+  void generatedInstanceIdRoutesToRun() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    advisor.adviseCall(requestWithTools(), null); // no INSTANCE_ID_KEY set
+
+    assertNotEquals(null, runner.capturedInstanceId, "a fresh id must be generated");
+    assertFalse(runner.lastCallWasAttach, "a generated id must route to run(), not the attach path");
+  }
+
+  /** A blank caller-supplied id falls back to a generated one (not used verbatim; run path). */
+  @Test
+  void blankCallerSuppliedInstanceIdFallsBackToGenerated() {
+    CapturingRunner runner = new CapturingRunner();
+    DurableAdvisor advisor = new DurableAdvisor(runner, new DiscoveredTools(), new MessageCodec());
+
+    Map<String, Object> context = new HashMap<>();
+    context.put(DurableAdvisor.INSTANCE_ID_KEY, "  ");
+    Prompt prompt = new Prompt(List.of(new UserMessage("hi")), ToolCallingChatOptions.builder().build());
+    advisor.adviseCall(new ChatClientRequest(prompt, context), null);
+
+    assertNotEquals("  ", runner.capturedInstanceId, "a blank id must not be used verbatim");
+    assertNotEquals(null, runner.capturedInstanceId, "a fresh id must be generated");
+    assertFalse(runner.lastCallWasAttach, "a blank id falls back to the generated (run) path");
+  }
+
+  private static CallAdvisor advisorAt(String name, int order) {
+    return new CallAdvisor() {
+      @Override
+      public ChatClientResponse adviseCall(ChatClientRequest request, CallAdvisorChain chain) {
+        return chain.nextCall(request);
+      }
+
+      @Override
+      public String getName() {
+        return name;
+      }
+
+      @Override
+      public int getOrder() {
+        return order;
+      }
+    };
+  }
+
+  /** A ToolCallingChatOptions whose getToolCallbacks() is null — what a no-tools ChatClient yields. */
+  static class NullToolsOptions implements ToolCallingChatOptions {
+    @Override
+    public List<ToolCallback> getToolCallbacks() {
+      return null;
+    }
+
+    @Override
+    public Map<String, Object> getToolContext() {
+      return null;
+    }
+
+    @Override
+    public String getModel() {
+      return null;
+    }
+
+    @Override
+    public Double getFrequencyPenalty() {
+      return null;
+    }
+
+    @Override
+    public Integer getMaxTokens() {
+      return null;
+    }
+
+    @Override
+    public Double getPresencePenalty() {
+      return null;
+    }
+
+    @Override
+    public List<String> getStopSequences() {
+      return null;
+    }
+
+    @Override
+    public Double getTemperature() {
+      return null;
+    }
+
+    @Override
+    public Integer getTopK() {
+      return null;
+    }
+
+    @Override
+    public Double getTopP() {
+      return null;
+    }
+
+    @Override
+    public ToolCallingChatOptions.Builder<?> mutate() {
+      return null;
+    }
+  }
+}

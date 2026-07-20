@@ -2,7 +2,7 @@
 
 > **Pure Spring AI 2.0 by default; Dapr is opt-in via Spring profiles.** With no profile active the
 > app is plain Spring AI — no Dapr, no sidecar. Activating the `dapr`, `memory`, and/or `registry`
-> profiles layers in the `io.diagrid:dapr-spring-ai-*` starters with **no application-code changes**
+> profiles layers in the `io.diagrid.dapr:dapr-spring-ai-*` starters with **no application-code changes**
 > (the integration is pure auto-config + `ChatClient.Builder` injection): `dapr` runs each agent's
 > LLM+tool loop as a **durable Dapr Workflow**, `memory` persists chat memory in a Dapr state store,
 > and `registry` publishes the agents for discovery. See [Running](#running).
