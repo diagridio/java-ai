@@ -176,7 +176,7 @@ GET /chat?message=<text>[&conversationId=<id>]
 - **Different** `conversationId`s are isolated.
 
 > `conversationId` is chat-memory grouping only — **not** the durability key. Every call still runs
-> under its own random workflow instance id (dapr-agents parity).
+> under its own random workflow instance id.
 
 ```bash
 # turn 1 — no conversationId: the server assigns one; grab it from the response header
@@ -356,7 +356,7 @@ travel-planner/
 ├── src/main/resources/
 │   ├── application.properties                                   pure defaults (Dapr off) + profile usage
 │   └── application-{dapr,memory,registry,tracing,openai,conversation}.properties    opt-in profiles
-└── src/main/java/io/diagrid/springai/examples/travelplanner/
+└── src/main/java/io/diagrid/dapr/springai/examples/travelplanner/
     ├── TravelPlannerApplication.java
     ├── tools/              8 @Tool classes: 6 request-scoped (mock data + FlakyApiTools) + 2 global @Component (CurrencyTools, SlowBookingTools) offered to every durable agent (so they survive a worker restart)
     ├── agents/             8 ChatClient @Component agents (incl. TravelConcierge, BookingAgent) + CrashRecoveryAgentConfig (the named `crashRecoveryAgent` @Bean → its own per-agent workflow name)
