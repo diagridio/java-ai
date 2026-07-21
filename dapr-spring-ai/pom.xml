@@ -56,7 +56,7 @@
     <dsa.excludedGroups>probe,integration</dsa.excludedGroups>
     <!-- Static analysis (copied from dapr-java-agents). Versions all run on JDK 17. -->
     <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
-    <checkstyle.version>10.21.4</checkstyle.version>
+    <checkstyle.version>13.8.0</checkstyle.version>
     <spotbugs-maven-plugin.version>4.9.8.3</spotbugs-maven-plugin.version>
     <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
     <!-- Failsafe runs the `*IT` integration test; Surefire's default patterns never match `*IT`. -->
