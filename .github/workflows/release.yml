@@ -35,7 +35,7 @@ jobs:
         working-directory: dapr-spring-ai
     steps:
       - name: Check out
-        uses: actions/checkout@v4
+        uses: actions/checkout@v7
 
       # JDK 17: the artifacts target release 17 and the static-analysis plugins (Checkstyle/SpotBugs/PMD)
       # are pinned to run on 17. setup-java also writes a settings.xml with a `central` server (mapped to
