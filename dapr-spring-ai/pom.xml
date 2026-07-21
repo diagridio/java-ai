@@ -62,7 +62,7 @@
     <!-- Failsafe runs the `*IT` integration test; Surefire's default patterns never match `*IT`. -->
     <maven-failsafe-plugin.version>3.2.5</maven-failsafe-plugin.version>
     <!-- Pinned so the license-bundling execution below doesn't run on the ancient lifecycle default. -->
-    <maven-resources-plugin.version>3.3.1</maven-resources-plugin.version>
+    <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
     <!-- Release-only plugins (Maven Central via the Sonatype Central Portal). Active under -Prelease. -->
     <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
     <maven-javadoc-plugin.version>3.11.2</maven-javadoc-plugin.version>
