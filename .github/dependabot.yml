@@ -1,0 +1,22 @@
+version: 2
+updates:
+  # GitHub Actions used by the workflows
+  - package-ecosystem: "github-actions"
+    directory: "/"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
+  # Maven — the dapr-spring-ai reactor (dependency BOM + plugin versions live in the parent pom)
+  - package-ecosystem: "maven"
+    directory: "/dapr-spring-ai"
+    schedule:
+      interval: "daily"
+    cooldown:
+      default-days: 7
+    ignore:
+      - dependency-name: "*"
+        update-types: ["version-update:semver-patch"]
