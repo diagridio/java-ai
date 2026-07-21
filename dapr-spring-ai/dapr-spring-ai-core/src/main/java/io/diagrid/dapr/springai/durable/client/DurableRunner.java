@@ -27,8 +27,8 @@ import org.slf4j.LoggerFactory;
  * <p><b>Execution identity: dapr-agents parity.</b> The advisor generates a fresh
  * {@code UUID.randomUUID()} per call unless the caller supplies their own id. There is deliberately
  * <b>no</b> reissue dedup or content-hash derivation. Client-retry idempotency is the tool author's
- * concern — make tool activities idempotent using the per-execution {@code taskExecutionId} (see
- * {@code ToolInvokeActivity}).
+ * concern — a tool receives only its arguments, so make it idempotent on a business key in those
+ * arguments (e.g. a booking reference); the core adds no dedup of its own.
  *
  * <p>Forms of recovery:
  * <ul>

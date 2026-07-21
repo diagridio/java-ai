@@ -122,10 +122,10 @@ execution.
 
 - **Reissue dedup.** If a client retries a call (a double-clicked submit, a
   network retry), it starts a *second* workflow — both run. Idempotency of
-  retried side effects is the **tool author's** concern: make tool activities
-  idempotent using the per-execution `taskExecutionId` handed to each tool
-  activity (see `ToolInvokeActivity`). That hook is now the whole idempotency
-  story.
+  retried side effects is the **tool author's** concern, and the library adds
+  **no** dedup of its own: a tool receives only its arguments, so make it
+  idempotent on a **business key in those arguments** (e.g. a booking reference,
+  or a caller-supplied idempotency token).
 
 **On a wait-budget timeout.** A call blocks only for
 `dapr.spring-ai.completion-timeout`. If that elapses the workflow keeps running
@@ -211,8 +211,8 @@ have their own tables in the sections below):
 
 By default each call runs under its own fresh instance id, so there is nothing to
 configure about dedup — there is none. A retry under a
-generated id is a new execution; make tool side effects idempotent (see the
-`taskExecutionId` note above). A retry under an id **you** supply attaches to the
+generated id is a new execution; make tool side effects idempotent on a business
+key (see the *Reissue dedup* note above). A retry under an id **you** supply attaches to the
 existing run instead — the recovery contract in *Choosing your own instance id*
 above.
 

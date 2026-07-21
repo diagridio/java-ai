@@ -11,10 +11,10 @@ import io.dapr.workflows.WorkflowActivityContext;
  * Activity that executes one tool call by dispatching to the {@link ToolRegistry} by name.
  *
  * <p>Each tool call from a model turn runs as its own activity so recovery is granular: the runtime
- * records every completed activity and never re-runs it on replay. The runtime's
- * {@code taskExecutionId} (available via {@link WorkflowActivityContext#getTaskExecutionId()}) is the
- * hook a tool author can use to dedupe side effects across the narrow at-least-once window; the core
- * does not add its own idempotency layer.
+ * records every completed activity and never re-runs it on replay. The core adds no idempotency
+ * layer of its own, and a tool receives only its arguments — so a tool whose side effects must be
+ * dedup-safe across a retry or a client reissue should key off a business value in those arguments
+ * (e.g. a booking reference).
  *
  * <p>The body runs inside a {@link DurableTracing} activity scope (restoring the originating trace
  * context), and the instance id + tool name are placed in SLF4J MDC for log correlation regardless
