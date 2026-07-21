@@ -41,7 +41,7 @@ jobs:
       # are pinned to run on 17. setup-java also writes a settings.xml with a `central` server (mapped to
       # the env vars below) and imports the GPG key so maven-gpg-plugin can sign headlessly.
       - name: Set up JDK 17
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: '17'
