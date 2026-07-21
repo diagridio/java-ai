@@ -50,7 +50,8 @@ Every call ran as a Dapr Workflow: the model call and the `bookFlight` tool each
 checkpointed activity. That checkpointing is what survives a mid-flight worker crash (next section) —
 a completed step is never re-run on recovery. Note there is **no** reissue dedup:
 re-issue the same request and it starts a *new* workflow and books *again* (`bookings.log` gets a
-second line). Making a re-submit idempotent is the tool's job, via the activity `taskExecutionId`.
+second line). Making a re-submit idempotent is the tool's job — key off a business value in the
+tool's arguments (here, the booking reference); the library adds no dedup of its own.
 
 ## Test durability across a crash
 
