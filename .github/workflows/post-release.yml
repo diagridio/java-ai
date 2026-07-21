@@ -4,7 +4,8 @@ name: post-release
 # It publishes nothing. It records a release that actually went out:
 #   1. verifies the version is live on Maven Central (guards against a dropped deployment),
 #   2. tags the exact commit that was released,
-#   3. opens a PR bumping main (+ the example apps) to the next -SNAPSHOT dev version.
+#   3. drafts a GitHub Release for that tag (you review the notes and publish it),
+#   4. opens a PR bumping main (+ the example apps) to the next -SNAPSHOT dev version.
 #
 # Why separate from release.yml: release.yml only uploads a STAGED deployment; whether it
 # becomes public is a manual Portal decision that can be a DROP. Tagging inside release.yml
@@ -95,6 +96,20 @@ jobs:
           git tag -a "${tag}" "${{ steps.commit.outputs.sha }}" -m "Release ${tag}"
           git push origin "${tag}"
           echo "Tagged ${tag} -> ${{ steps.commit.outputs.sha }}"
+
+      - name: Draft the GitHub Release
+        run: |
+          set -euo pipefail
+          tag="v${VERSION}"
+          # Draft only — a human reviews the notes and clicks Publish (the same human gate as the
+          # Central publish). --generate-notes lists the PRs merged since the previous tag (noisy
+          # for the very first release, clean thereafter). Idempotent: skip if it already exists.
+          if gh release view "${tag}" >/dev/null 2>&1; then
+            echo "Release ${tag} already exists — leaving it as is."
+          else
+            gh release create "${tag}" --draft --verify-tag --generate-notes --title "${tag}"
+            echo "Drafted release ${tag} — review the notes and Publish it manually."
+          fi
 
       - name: Set up JDK 17
         uses: actions/setup-java@v4
