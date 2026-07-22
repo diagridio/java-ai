@@ -13,6 +13,7 @@ import org.springframework.ai.chat.metadata.ChatResponseMetadata;
 import org.springframework.ai.chat.metadata.Usage;
 import org.springframework.ai.chat.model.ChatModel;
 import org.springframework.ai.chat.model.ChatResponse;
+import org.springframework.ai.chat.model.Generation;
 import org.springframework.ai.chat.prompt.ChatOptions;
 import org.springframework.ai.chat.prompt.Prompt;
 import org.springframework.ai.tool.ToolCallback;
@@ -80,14 +81,18 @@ public final class LlmInvokeActivity implements WorkflowActivity {
     Prompt prompt = new Prompt(messages, options);
 
     ChatResponse response = chatModel.call(prompt);
-    AssistantMessage assistant = response.getResult().getOutput();
+    Generation result = response.getResult();
+    if (result == null) {
+      throw new IllegalStateException("ChatModel returned no generation for the prompt");
+    }
+    AssistantMessage assistant = result.getOutput();
 
     List<ToolCallRecord> toolCalls =
         assistant.getToolCalls().stream()
             .map(tc -> new ToolCallRecord(tc.id(), tc.type(), tc.name(), tc.arguments()))
             .toList();
 
-    String finishReason = response.getResult().getMetadata().getFinishReason();
+    String finishReason = result.getMetadata().getFinishReason();
 
     // Capture response metadata (usage/model/id) so the workflow can aggregate it into AgentResult.
     ChatResponseMetadata metadata = response.getMetadata();
