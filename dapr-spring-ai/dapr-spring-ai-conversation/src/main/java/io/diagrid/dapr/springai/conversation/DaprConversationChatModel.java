@@ -262,7 +262,8 @@ public final class DaprConversationChatModel implements ChatModel {
     if (options.getPresencePenalty() != null) {
       dropped.add("presencePenalty");
     }
-    if (options.getStopSequences() != null && !options.getStopSequences().isEmpty()) {
+    List<String> stopSequences = options.getStopSequences();
+    if (stopSequences != null && !stopSequences.isEmpty()) {
       dropped.add("stopSequences");
     }
     if (!dropped.isEmpty()) {
