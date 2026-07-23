@@ -47,7 +47,7 @@
     <springboot.version>4.0.5</springboot.version>
     <!-- Jackson 2 = the version durabletask's DataConverter serializes activity payloads with.
          (Spring AI 2.0 itself uses Jackson 3 under tools.jackson; the two coexist on the classpath.) -->
-    <jackson2.version>2.21.2</jackson2.version>
+    <jackson2.version>2.22.1</jackson2.version>
     <!-- Tags excluded from the default (Surefire) unit run: the live-service `probe` classes and the
          crash-recovery `integration` IT. The IT has its own lane — run it with `-Pintegration` (see the
          profile below). To run a `probe`, name it explicitly and clear this property, e.g.
