@@ -1,0 +1,2 @@
+io.diagrid.springai.durable.boot.DiagridSpringAiAutoConfiguration
+io.diagrid.springai.durable.boot.DurableObservabilityAutoConfiguration

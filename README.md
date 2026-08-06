@@ -24,21 +24,21 @@ durable with no application-code changes:
 
 ```xml
 <dependency>
-  <groupId>io.diagrid.dapr</groupId>
-  <artifactId>dapr-spring-ai-starter</artifactId>
+  <groupId>io.diagrid</groupId>
+  <artifactId>diagrid-spring-ai-starter</artifactId>
   <version>0.1.0</version>
 </dependency>
 ```
 
 The other modules are optional and independent — add whichever you need (same
-`io.diagrid.dapr` group and version):
+`io.diagrid` group and version):
 
 | Artifact | What it adds |
 |---|---|
-| `dapr-spring-ai-starter` | durable `ChatClient` over Dapr Workflows — the one you usually want |
-| `dapr-spring-ai-agent-registry` | auto-publish agents to a Dapr state store for discovery |
-| `dapr-spring-ai-memory` | durable chat memory backed by a Dapr state store |
-| `dapr-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
+| `diagrid-spring-ai-starter` | durable `ChatClient` over Dapr Workflows — the one you usually want |
+| `diagrid-spring-ai-agent-registry` | auto-publish agents to a Dapr state store for discovery |
+| `diagrid-spring-ai-memory` | durable chat memory backed by a Dapr state store |
+| `diagrid-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
 
 All are on Maven Central and need a Dapr sidecar with the workflow building block
 enabled — see [Requirements](#requirements) for JDK and runtime notes.
@@ -101,7 +101,7 @@ precedence); an advisor ordered *after* it will never run. The library logs a
 one-time WARN naming any stranded advisors it finds. Request-observing advisors
 (memory, RAG, logging) already sit earlier by default and are unaffected.
 
-See **[`dapr-spring-ai-starter/README.md`](dapr-spring-ai/dapr-spring-ai-starter/README.md)** for a
+See **[`diagrid-spring-ai-starter/README.md`](diagrid-spring-ai/diagrid-spring-ai-starter/README.md)** for a
 short cookbook on defining agents — the two shapes (`@Component` vs `@Bean`), the hybrid pattern,
 tool crash-safety, and the wait-budget timeout behaviour.
 
@@ -128,7 +128,7 @@ execution.
   or a caller-supplied idempotency token).
 
 **On a wait-budget timeout.** A call blocks only for
-`dapr.spring-ai.completion-timeout`. If that elapses the workflow keeps running
+`diagrid.spring-ai.completion-timeout`. If that elapses the workflow keeps running
 and the call throws a `DurableCallTimeoutException` carrying the instance id — the
 timeout is a *wait budget*, not a failure. To collect the result, schedule under
 an id **you own** and **repeat the same call** with that id: it re-attaches to the
@@ -137,8 +137,8 @@ below). With a generated id there is no attach handle, so the run is recovered
 out-of-band — inspected (and its output read) via the **Diagrid dashboard** or the
 `dapr workflow` CLI using that id. The instance id and workflow name are also
 echoed on every **successful** response, in `ChatClientResponse.context()` and
-`ChatResponse.getMetadata()` under the keys `dapr.spring-ai.instance-id` /
-`dapr.spring-ai.workflow-name`, for correlation:
+`ChatResponse.getMetadata()` under the keys `diagrid.spring-ai.instance-id` /
+`diagrid.spring-ai.workflow-name`, for correlation:
 
 ```java
 String answer = null;
@@ -205,9 +205,9 @@ have their own tables in the sections below):
 
 | Property | Default | Meaning |
 |----------|---------|---------|
-| `dapr.spring-ai.enabled` | `true` | make `ChatClient` calls durable at all |
-| `dapr.spring-ai.completion-timeout` | `5m` | how long a call blocks on its workflow; if it elapses the call throws `DurableCallTimeoutException` while the workflow keeps running — inspect/recover it via Dapr tooling using the instance id (see above) |
-| `dapr.spring-ai.max-iterations` | `20` | hard cap on LLM turns per call; the workflow fails if the model still requests tools past it (guards against a runaway tool loop — stock Spring AI's loop is unbounded) |
+| `diagrid.spring-ai.enabled` | `true` | make `ChatClient` calls durable at all |
+| `diagrid.spring-ai.completion-timeout` | `5m` | how long a call blocks on its workflow; if it elapses the call throws `DurableCallTimeoutException` while the workflow keeps running — inspect/recover it via Dapr tooling using the instance id (see above) |
+| `diagrid.spring-ai.max-iterations` | `20` | hard cap on LLM turns per call; the workflow fails if the model still requests tools past it (guards against a runaway tool loop — stock Spring AI's loop is unbounded) |
 
 By default each call runs under its own fresh instance id, so there is nothing to
 configure about dedup — there is none. A retry under a
@@ -286,14 +286,14 @@ through the workflow input and restored activity-side, done here with Micrometer
 Three layers join up:
 
 1. **Caller side** — the advisor wraps the blocking schedule+wait in a Micrometer
-   `Observation` named `dapr.springai.durable.call` (tags: `workflow_name`,
+   `Observation` named `diagrid.springai.durable.call` (tags: `workflow_name`,
    `outcome` = `completed | timeout | failed`, and the `instance_id`), and it
    echoes the instance id + workflow name onto the response
    (`ChatClientResponse.context()` and `ChatResponse.getMetadata()`, keys
-   `dapr.spring-ai.instance-id` / `dapr.spring-ai.workflow-name`).
+   `diagrid.spring-ai.instance-id` / `diagrid.spring-ai.workflow-name`).
 2. **Activity side** — the W3C trace context captured inside that observation is
    carried in the workflow input and restored around each activity, which runs
-   under a child span (`dapr.springai.llm.invoke` / `dapr.springai.tool.invoke`).
+   under a child span (`diagrid.springai.llm.invoke` / `diagrid.springai.tool.invoke`).
    With the context restored, **Spring AI's own ChatModel `gen_ai` spans/metrics
    parent correctly for free** — that's the main payoff; we don't duplicate what
    Spring AI already records about the model call. (Spans are created only on the
@@ -323,15 +323,15 @@ of the `ObservationRegistry` / `Tracer` beans is the switch.
 The model call and each tool call run as workflow activities, and a transient
 failure (a provider rate limit, a network blip) is retried by the Dapr runtime
 instead of failing the whole workflow. Retries are **on by default** with
-exponential backoff; configure or disable them under `dapr.spring-ai.retry`:
+exponential backoff; configure or disable them under `diagrid.spring-ai.retry`:
 
 | Property | Default | Meaning |
 |---|---|---|
-| `dapr.spring-ai.retry.enabled` | `true` | retry activities at all |
-| `dapr.spring-ai.retry.max-attempts` | `3` | total attempts, including the first |
-| `dapr.spring-ai.retry.first-interval` | `1s` | delay before the first retry |
-| `dapr.spring-ai.retry.backoff-coefficient` | `2.0` | interval multiplier per attempt |
-| `dapr.spring-ai.retry.max-interval` | `30s` | cap on the growing retry interval |
+| `diagrid.spring-ai.retry.enabled` | `true` | retry activities at all |
+| `diagrid.spring-ai.retry.max-attempts` | `3` | total attempts, including the first |
+| `diagrid.spring-ai.retry.first-interval` | `1s` | delay before the first retry |
+| `diagrid.spring-ai.retry.backoff-coefficient` | `2.0` | interval multiplier per attempt |
+| `diagrid.spring-ai.retry.max-interval` | `30s` | cap on the growing retry interval |
 
 The policy applies equally to the LLM and tool activities and is fixed at
 startup, so it stays constant across workflow replays. Retries are bounded by
@@ -349,7 +349,7 @@ a default rather than on an individual request.
 
 ## Agent registry
 
-The `dapr-spring-ai-agent-registry` module (separate dependency, independent of
+The `diagrid-spring-ai-agent-registry` module (separate dependency, independent of
 durability) publishes each agent to a Dapr state store so tooling like the
 Diagrid dashboard and other Dapr Agents can discover it. Add the dependency and
 it works with no code changes.
@@ -368,19 +368,19 @@ agent's record also carries `agent.metadata.workflow_name` (e.g.
 `spring-ai.weatherAssistant.workflow`), the explicit key tooling uses to
 correlate the agent with its workflows.
 
-Configure under `dapr.spring-ai.registry`:
+Configure under `diagrid.spring-ai.registry`:
 
 | Property | Default | Meaning |
 |---|---|---|
-| `dapr.spring-ai.registry.enabled` | `true` | register agents at all |
-| `dapr.spring-ai.registry.statestore` | `agent-registry` | Dapr state store component |
-| `dapr.spring-ai.registry.team` | `default` | namespaces the registry keys |
-| `dapr.spring-ai.registry.app-id` | `spring.application.name`, else `spring-ai-app` | Dapr app id recorded on each agent — **set to your Dapr app id** (see note) |
+| `diagrid.spring-ai.registry.enabled` | `true` | register agents at all |
+| `diagrid.spring-ai.registry.statestore` | `agent-registry` | Dapr state store component |
+| `diagrid.spring-ai.registry.team` | `default` | namespaces the registry keys |
+| `diagrid.spring-ai.registry.app-id` | `spring.application.name`, else `spring-ai-app` | Dapr app id recorded on each agent — **set to your Dapr app id** (see note) |
 
 > **`app-id` must be your actual Dapr app id** (the sidecar's `--app-id`), because tooling
 > correlates an agent to its app and workflows by it. There is no reliable way to read the Dapr app
 > id from inside the app, so it defaults to `spring.application.name` purely as a convenience for
-> apps that name the two the same — if yours differ, set `dapr.spring-ai.registry.app-id` explicitly.
+> apps that name the two the same — if yours differ, set `diagrid.spring-ai.registry.app-id` explicitly.
 
 > **The registry state store must use `keyPrefix: none`.** Otherwise Dapr's default
 > (`keyPrefix: appid`) prepends `<appId>||` to every key, siloing the registry per app so other
@@ -426,20 +426,20 @@ annotations, no stack inspection), and it has limits worth knowing:
 
 ## Chat memory
 
-The `dapr-spring-ai-memory` module (separate dependency) backs Spring AI's chat
+The `diagrid-spring-ai-memory` module (separate dependency) backs Spring AI's chat
 memory with a Dapr state store, so conversation history survives restarts and is
 shared across replicas — durable conversations to go with durable execution.
 
 It provides a `ChatMemoryRepository` (registered *before* Spring AI's default)
 that persists each conversation's messages to a Dapr state store keyed by
 conversation id; Spring AI's `MessageWindowChatMemory` uses it transparently.
-Configure under `dapr.spring-ai.memory`:
+Configure under `diagrid.spring-ai.memory`:
 
 | Property | Default | Meaning |
 |---|---|---|
-| `dapr.spring-ai.memory.enabled` | `true` | back chat memory with Dapr |
-| `dapr.spring-ai.memory.statestore` | `agent-memory` | Dapr state store component (Catalyst provides this by default) |
-| `dapr.spring-ai.memory.agent-name` | `default` | key namespace (see below) |
+| `diagrid.spring-ai.memory.enabled` | `true` | back chat memory with Dapr |
+| `diagrid.spring-ai.memory.statestore` | `agent-memory` | Dapr state store component (Catalyst provides this by default) |
+| `diagrid.spring-ai.memory.agent-name` | `default` | key namespace (see below) |
 
 Notes:
 
@@ -470,7 +470,7 @@ Notes:
 
 ## Conversation API
 
-The `dapr-spring-ai-conversation` module (separate dependency, independent of
+The `diagrid-spring-ai-conversation` module (separate dependency, independent of
 durability) provides a Spring AI `ChatModel` whose LLM calls go through the
 Dapr sidecar's [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/)
 instead of a provider SDK — swap providers by component configuration, keep
@@ -478,24 +478,24 @@ provider SDKs and API keys out of the app, and get sidecar features like PII
 scrubbing for free. Tool calling is supported (definitions advertised, tool
 calls returned — never executed in-model, so it composes with the durable
 path); the API is text-only and non-streaming. Configure under
-`dapr.spring-ai.conversation`:
+`diagrid.spring-ai.conversation`:
 
 | Property | Default | Meaning |
 |---|---|---|
-| `dapr.spring-ai.conversation.component` | — (**required**) | Dapr conversation component routing LLM traffic |
-| `dapr.spring-ai.conversation.context-id` | — | conversation session id handed to the sidecar |
-| `dapr.spring-ai.conversation.scrub-pii` | `false` | sidecar obfuscates PII in inputs and outputs |
-| `dapr.spring-ai.conversation.temperature` | — | default sampling temperature |
+| `diagrid.spring-ai.conversation.component` | — (**required**) | Dapr conversation component routing LLM traffic |
+| `diagrid.spring-ai.conversation.context-id` | — | conversation session id handed to the sidecar |
+| `diagrid.spring-ai.conversation.scrub-pii` | `false` | sidecar obfuscates PII in inputs and outputs |
+| `diagrid.spring-ai.conversation.temperature` | — | default sampling temperature |
 
 Model selection follows Spring AI's provider-starter convention: the model
 registers unless `spring.ai.model.chat` selects another provider (set it to
 `dapr` to pick this one explicitly, `none` to disable all chat models).
 Capabilities, caveats, and component YAML examples:
-[module README](dapr-spring-ai/dapr-spring-ai-conversation/README.md).
+[module README](diagrid-spring-ai/diagrid-spring-ai-conversation/README.md).
 
 ## Roadmap
 
-- [x] `dapr-spring-ai` — durable `ChatClient` over Dapr Workflows
+- [x] `diagrid-spring-ai` — durable `ChatClient` over Dapr Workflows
 - [x] Dapr [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/) integration — Spring AI `ChatModel` backed by Dapr's Conversation building block
 - [x] Chat memory backed by a Dapr state store — durable conversation history via Spring AI's `ChatMemory`
 - [x] Agent registry backed by a Dapr state store
@@ -510,7 +510,7 @@ Capabilities, caveats, and component YAML examples:
 - **Java 21 recommended for the app runtime.** A durable `ChatClient.call()` blocks the caller until
   its workflow completes (the call is synchronous by contract). On Java 21 with
   `spring.threads.virtual.enabled=true`, that wait parks a *virtual* thread — nearly free — so the
-  blocking model scales. Pair it with a generous `dapr.spring-ai.completion-timeout` for slow calls;
+  blocking model scales. Pair it with a generous `diagrid.spring-ai.completion-timeout` for slow calls;
   the timeout is only a wait budget — the workflow keeps running past it, and the call throws
   `DurableCallTimeoutException` carrying the instance id so the result can be collected later by id,
   so no work is lost. (Java 25 runs fine too, but build the library on 17/21 — some

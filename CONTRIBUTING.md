@@ -12,14 +12,14 @@ Thanks for your interest in contributing to the Diagrid Java AI integrations.
 
 ## Project layout
 
-The Maven reactor lives under [`dapr-spring-ai/`](dapr-spring-ai) with five published modules — `core`, `starter`, `agent-registry`, `memory`, `conversation` — plus standalone example apps under [`dapr-spring-ai/examples/`](dapr-spring-ai/examples) that are **not** part of the reactor.
+The Maven reactor lives under [`diagrid-spring-ai/`](diagrid-spring-ai) with five published modules — `core`, `starter`, `agent-registry`, `memory`, `conversation` — plus standalone example apps under [`diagrid-spring-ai/examples/`](diagrid-spring-ai/examples) that are **not** part of the reactor.
 
 ## Build and test
 
 Run everything from the reactor root:
 
 ```bash
-cd dapr-spring-ai
+cd diagrid-spring-ai
 mvn -B clean verify        # compile + unit tests + Checkstyle/SpotBugs/PMD
 ```
 
@@ -36,7 +36,7 @@ Unit tests run under Surefire; the `probe` and `integration` tagged tests are ex
 The crash-recovery integration test is heavy and opt-in — it needs **Docker** (a Dapr sidecar via Testcontainers) and a local **Ollama** serving `llama3.1:8b`:
 
 ```bash
-mvn -pl dapr-spring-ai-core -Pintegration verify
+mvn -pl diagrid-spring-ai-core -Pintegration verify
 ```
 
 Without Ollama the test skips itself. It is not part of the default build or of CI.

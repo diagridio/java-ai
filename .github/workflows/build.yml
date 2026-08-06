@@ -3,7 +3,7 @@ name: build
 # Build the library and run the full unit-test + static-analysis suite (Checkstyle, SpotBugs, PMD)
 # on every PR and every push to main, across the supported JDKs. The crash-recovery integration test
 # is NOT here — it is heavy and infra-dependent (Docker + a live Ollama serving llama3.1:8b); run it
-# manually with `mvn -pl dapr-spring-ai-core -Pintegration verify`.
+# manually with `mvn -pl diagrid-spring-ai-core -Pintegration verify`.
 on:
   push:
     branches: [main]
@@ -41,7 +41,7 @@ jobs:
       # modules) and the SNAPSHOTs are not published anywhere. `install` runs the same unit tests and
       # static analysis as `verify`, then installs.
       - name: Build, test, static analysis
-        working-directory: dapr-spring-ai
+        working-directory: diagrid-spring-ai
         run: mvn -B clean install
 
       # Compile the standalone example apps so they don't bit-rot against the library. JDK 21 leg only:
@@ -49,7 +49,7 @@ jobs:
       # API keys are needed — the model keys are read at runtime, not compile time.
       - name: Compile example apps
         if: matrix.java == '21'
-        working-directory: dapr-spring-ai
+        working-directory: diagrid-spring-ai
         run: |
           mvn -B -f examples/travel-planner/pom.xml clean package -DskipTests
           mvn -B -f examples/durable-chat/pom.xml clean package -DskipTests
