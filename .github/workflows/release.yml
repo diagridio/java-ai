@@ -7,7 +7,7 @@ name: release
 # the `release` profile) — a published Central release cannot be undone.
 #
 # One-time, org-level prerequisites (NOT in this repo):
-#   - `io.diagrid.dapr` is a VERIFIED namespace on the Central Portal (https://central.sonatype.com).
+#   - `io.diagrid` is a VERIFIED namespace on the Central Portal (https://central.sonatype.com).
 #   - Repository (or org) secrets:
 #       CENTRAL_TOKEN_USERNAME / CENTRAL_TOKEN_PASSWORD  the two halves of a Central Portal user token
 #           (central.sonatype.com -> Account -> Generate User Token) — NOT your Sonatype login.
@@ -32,7 +32,7 @@ jobs:
     runs-on: ubuntu-latest
     defaults:
       run:
-        working-directory: dapr-spring-ai
+        working-directory: diagrid-spring-ai
     steps:
       - name: Check out
         uses: actions/checkout@v7
@@ -73,5 +73,5 @@ jobs:
         uses: actions/upload-artifact@v7
         with:
           name: surefire-reports
-          path: 'dapr-spring-ai/**/target/surefire-reports/**'
+          path: 'diagrid-spring-ai/**/target/surefire-reports/**'
           if-no-files-found: ignore

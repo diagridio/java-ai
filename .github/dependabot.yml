@@ -10,9 +10,9 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
-  # Maven — the dapr-spring-ai reactor (dependency BOM + plugin versions live in the parent pom)
+  # Maven — the diagrid-spring-ai reactor (dependency BOM + plugin versions live in the parent pom)
   - package-ecosystem: "maven"
-    directory: "/dapr-spring-ai"
+    directory: "/diagrid-spring-ai"
     schedule:
       interval: "daily"
     cooldown:

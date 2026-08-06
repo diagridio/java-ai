@@ -1,0 +1,351 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <groupId>io.diagrid</groupId>
+  <artifactId>diagrid-spring-ai-parent</artifactId>
+  <version>0.1.0-SNAPSHOT</version>
+  <packaging>pom</packaging>
+
+  <name>diagrid-spring-ai</name>
+  <description>Make Spring AI ChatClient calls durable across JVM restarts via Dapr Workflows</description>
+  <url>https://github.com/diagridio/java-ai</url>
+
+  <!-- Maven Central requires license, developer, and SCM metadata on every published artifact. These
+       are declared once here and inherited by the five library modules. -->
+  <licenses>
+    <license>
+      <name>Business Source License 1.1</name>
+      <url>https://github.com/diagridio/java-ai/blob/main/LICENSE.md</url>
+      <distribution>repo</distribution>
+    </license>
+  </licenses>
+
+  <developers>
+    <developer>
+      <id>diagrid</id>
+      <name>Diagrid</name>
+      <organization>Diagrid</organization>
+      <organizationUrl>https://www.diagrid.io</organizationUrl>
+    </developer>
+  </developers>
+
+  <scm>
+    <connection>scm:git:https://github.com/diagridio/java-ai.git</connection>
+    <developerConnection>scm:git:git@github.com:diagridio/java-ai.git</developerConnection>
+    <url>https://github.com/diagridio/java-ai</url>
+    <tag>HEAD</tag>
+  </scm>
+
+  <properties>
+    <maven.compiler.release>17</maven.compiler.release>
+    <project.build.sourceEncoding>UTF-8</project.build.sourceEncoding>
+    <dapr.version>1.18.0</dapr.version>
+    <spring-ai.version>2.0.0</spring-ai.version>
+    <springboot.version>4.0.5</springboot.version>
+    <!-- Jackson 2 = the version durabletask's DataConverter serializes activity payloads with.
+         (Spring AI 2.0 itself uses Jackson 3 under tools.jackson; the two coexist on the classpath.) -->
+    <jackson2.version>2.22.1</jackson2.version>
+    <!-- Tags excluded from the default (Surefire) unit run: the live-service `probe` classes and the
+         crash-recovery `integration` IT. The IT has its own lane — run it with `-Pintegration` (see the
+         profile below). To run a `probe`, name it explicitly and clear this property, e.g.
+         `mvn -pl diagrid-spring-ai-core test -Dtest=ToolExecutionProbe -Ddsa.excludedGroups=`. -->
+    <dsa.excludedGroups>probe,integration</dsa.excludedGroups>
+    <!-- Static analysis (copied from dapr-java-agents). Versions all run on JDK 17. -->
+    <maven-checkstyle-plugin.version>3.6.0</maven-checkstyle-plugin.version>
+    <checkstyle.version>10.21.4</checkstyle.version>
+    <spotbugs-maven-plugin.version>4.10.3.0</spotbugs-maven-plugin.version>
+    <maven-pmd-plugin.version>3.28.0</maven-pmd-plugin.version>
+    <!-- Failsafe runs the `*IT` integration test; Surefire's default patterns never match `*IT`. -->
+    <maven-failsafe-plugin.version>3.5.6</maven-failsafe-plugin.version>
+    <!-- Pinned so the license-bundling execution below doesn't run on the ancient lifecycle default. -->
+    <maven-resources-plugin.version>3.5.0</maven-resources-plugin.version>
+    <!-- Release-only plugins (Maven Central via the Sonatype Central Portal). Active under -Prelease. -->
+    <maven-source-plugin.version>3.4.0</maven-source-plugin.version>
+    <maven-javadoc-plugin.version>3.12.0</maven-javadoc-plugin.version>
+    <maven-gpg-plugin.version>3.2.7</maven-gpg-plugin.version>
+    <central-publishing-maven-plugin.version>0.11.0</central-publishing-maven-plugin.version>
+  </properties>
+
+  <modules>
+    <module>diagrid-spring-ai-core</module>
+    <module>diagrid-spring-ai-starter</module>
+    <module>diagrid-spring-ai-agent-registry</module>
+    <module>diagrid-spring-ai-memory</module>
+    <module>diagrid-spring-ai-conversation</module>
+  </modules>
+
+  <build>
+    <pluginManagement>
+      <plugins>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-compiler-plugin</artifactId>
+          <version>3.15.0</version>
+          <configuration>
+            <release>${maven.compiler.release}</release>
+          </configuration>
+        </plugin>
+        <plugin>
+          <groupId>org.apache.maven.plugins</groupId>
+          <artifactId>maven-surefire-plugin</artifactId>
+          <version>3.5.6</version>
+          <configuration>
+            <!-- The default build runs pure unit tests only; `probe` and `integration` tagged tests
+                 (Docker/Testcontainers + a live LLM) are excluded. The IT runs in the `-Pintegration`
+                 lane below via Failsafe, not here. -->
+            <excludedGroups>${dsa.excludedGroups}</excludedGroups>
+          </configuration>
+        </plugin>
+      </plugins>
+    </pluginManagement>
+
+    <!-- Static analysis, inherited by the code modules (core, starter). Config files live at the
+         multi-module root so every module resolves the same absolute path. Runs on JDK 17. -->
+    <plugins>
+      <!-- Bundle the repo LICENSE into every module jar's META-INF, so the BSL text travels with each
+           published artifact ("conspicuously display this License on each copy"). LICENSE.md lives at
+           the git-repo root, one level above the reactor root (maven.multiModuleProjectDirectory, the
+           same anchor the static-analysis config files use). Harmless on the pom-packaged parent (no
+           jar is produced). Runs in every build, not just -Prelease. -->
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-resources-plugin</artifactId>
+        <version>${maven-resources-plugin.version}</version>
+        <executions>
+          <execution>
+            <id>bundle-license</id>
+            <phase>process-resources</phase>
+            <goals>
+              <goal>copy-resources</goal>
+            </goals>
+            <configuration>
+              <outputDirectory>${project.build.outputDirectory}/META-INF</outputDirectory>
+              <resources>
+                <resource>
+                  <directory>${maven.multiModuleProjectDirectory}/..</directory>
+                  <includes>
+                    <include>LICENSE.md</include>
+                  </includes>
+                </resource>
+              </resources>
+            </configuration>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-checkstyle-plugin</artifactId>
+        <version>${maven-checkstyle-plugin.version}</version>
+        <dependencies>
+          <dependency>
+            <groupId>com.puppycrawl.tools</groupId>
+            <artifactId>checkstyle</artifactId>
+            <version>${checkstyle.version}</version>
+          </dependency>
+        </dependencies>
+        <configuration>
+          <configLocation>${maven.multiModuleProjectDirectory}/checkstyle.xml</configLocation>
+          <consoleOutput>true</consoleOutput>
+          <failsOnError>true</failsOnError>
+          <includeTestSourceRoots>false</includeTestSourceRoots>
+        </configuration>
+        <executions>
+          <execution>
+            <id>checkstyle-validate</id>
+            <phase>validate</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>com.github.spotbugs</groupId>
+        <artifactId>spotbugs-maven-plugin</artifactId>
+        <version>${spotbugs-maven-plugin.version}</version>
+        <configuration>
+          <effort>Max</effort>
+          <threshold>Medium</threshold>
+          <failOnError>true</failOnError>
+          <includeTests>false</includeTests>
+          <excludeFilterFile>${maven.multiModuleProjectDirectory}/spotbugs-exclude.xml</excludeFilterFile>
+        </configuration>
+        <executions>
+          <execution>
+            <id>spotbugs-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+      <plugin>
+        <groupId>org.apache.maven.plugins</groupId>
+        <artifactId>maven-pmd-plugin</artifactId>
+        <version>${maven-pmd-plugin.version}</version>
+        <configuration>
+          <failOnViolation>true</failOnViolation>
+          <printFailingErrors>true</printFailingErrors>
+          <includeTests>false</includeTests>
+          <rulesets>
+            <ruleset>${maven.multiModuleProjectDirectory}/pmd-rules.xml</ruleset>
+          </rulesets>
+        </configuration>
+        <executions>
+          <execution>
+            <id>pmd-check</id>
+            <phase>verify</phase>
+            <goals>
+              <goal>check</goal>
+            </goals>
+          </execution>
+        </executions>
+      </plugin>
+    </plugins>
+  </build>
+
+  <dependencyManagement>
+    <dependencies>
+      <dependency>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-dependencies</artifactId>
+        <version>${springboot.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>org.springframework.ai</groupId>
+        <artifactId>spring-ai-bom</artifactId>
+        <version>${spring-ai.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+      <dependency>
+        <groupId>io.dapr</groupId>
+        <artifactId>dapr-sdk-bom</artifactId>
+        <version>${dapr.version}</version>
+        <type>pom</type>
+        <scope>import</scope>
+      </dependency>
+    </dependencies>
+  </dependencyManagement>
+
+  <profiles>
+    <!-- `-Pintegration`: run the crash-recovery IT via Failsafe during `verify`.
+         Surefire's default include patterns match `*Test` classes but never `*IT`, so the
+         `integration`-tagged CrashRecoveryIT needs Failsafe (whose defaults DO match `*IT`).
+         This lane is heavy and opt-in: it needs Docker (the Dapr sidecar runs in Testcontainers)
+         and a live local Ollama serving llama3.1:8b; without Ollama the IT skips itself (assumeTrue).
+         Run it with: `mvn -pl diagrid-spring-ai-core -Pintegration verify`. Not in the default build. -->
+    <profile>
+      <id>integration</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-failsafe-plugin</artifactId>
+            <version>${maven-failsafe-plugin.version}</version>
+            <configuration>
+              <!-- Run only the integration-tagged ITs. useManifestOnlyJar=false hands the forked
+                   worker JVM the real, full classpath (WorkerMain reads java.class.path to spawn
+                   itself); a manifest-only jar would give it a truncated classpath. -->
+              <groups>integration</groups>
+              <useManifestOnlyJar>false</useManifestOnlyJar>
+            </configuration>
+            <executions>
+              <execution>
+                <id>run-integration-tests</id>
+                <goals>
+                  <goal>integration-test</goal>
+                  <goal>verify</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+
+    <!-- `-Prelease`: sign and publish the five library modules (+ this parent POM) to Maven Central via
+         the Sonatype Central Portal. Off by default so the normal build stays fast and needs no GPG key.
+         The examples/ apps are standalone (not reactor modules) and are never published.
+
+         Prerequisites: a VERIFIED `io.diagrid` namespace on the Central Portal, a `central` server in
+         settings.xml holding a Portal user token, and a GPG signing key whose public half is on a
+         keyserver Central checks. Publish with `mvn -Prelease clean deploy`.
+
+         autoPublish=false uploads a STAGED deployment that a human reviews and releases in the Portal UI
+         — a published Central release cannot be undone. Flip to true once the process is trusted. -->
+    <profile>
+      <id>release</id>
+      <build>
+        <plugins>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-source-plugin</artifactId>
+            <version>${maven-source-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>attach-sources</id>
+                <goals>
+                  <goal>jar-no-fork</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-javadoc-plugin</artifactId>
+            <version>${maven-javadoc-plugin.version}</version>
+            <configuration>
+              <!-- Central requires a javadoc jar; it is not a doc-perfection gate. Don't let lint
+                   (missing @param, bad @link) fail the release. -->
+              <doclint>none</doclint>
+              <quiet>true</quiet>
+              <failOnError>false</failOnError>
+            </configuration>
+            <executions>
+              <execution>
+                <id>attach-javadocs</id>
+                <goals>
+                  <goal>jar</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.apache.maven.plugins</groupId>
+            <artifactId>maven-gpg-plugin</artifactId>
+            <version>${maven-gpg-plugin.version}</version>
+            <executions>
+              <execution>
+                <id>sign-artifacts</id>
+                <phase>verify</phase>
+                <goals>
+                  <goal>sign</goal>
+                </goals>
+              </execution>
+            </executions>
+          </plugin>
+          <plugin>
+            <groupId>org.sonatype.central</groupId>
+            <artifactId>central-publishing-maven-plugin</artifactId>
+            <version>${central-publishing-maven-plugin.version}</version>
+            <extensions>true</extensions>
+            <configuration>
+              <publishingServerId>central</publishingServerId>
+              <autoPublish>false</autoPublish>
+              <!-- Block the build until Central finishes validating the upload, so CI fails on a bad
+                   deployment instead of reporting success on an upload that never validated. -->
+              <waitUntil>validated</waitUntil>
+            </configuration>
+          </plugin>
+        </plugins>
+      </build>
+    </profile>
+  </profiles>
+</project>

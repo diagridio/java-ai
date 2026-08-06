@@ -27,7 +27,7 @@ on:
         description: 'Version just published to Central (tag will be v<this>), e.g. 0.1.0'
         required: true
       next_development_version:
-        description: 'Next development version for main, e.g. 0.2.0-SNAPSHOT'
+        description: 'Next development version for main, e.g. 0.1.0-SNAPSHOT'
         required: true
       release_commit:
         description: 'Optional commit SHA that was released. Default: head of the latest successful release run.'
@@ -60,11 +60,11 @@ jobs:
       - name: Verify the version is published on Maven Central
         run: |
           set -euo pipefail
-          url="https://repo1.maven.org/maven2/io/diagrid/dapr/dapr-spring-ai-parent/${VERSION}/dapr-spring-ai-parent-${VERSION}.pom"
+          url="https://repo1.maven.org/maven2/io/diagrid/diagrid-spring-ai-parent/${VERSION}/diagrid-spring-ai-parent-${VERSION}.pom"
           echo "Checking $url"
           code=$(curl -sS -o /dev/null -w '%{http_code}' "$url" || echo 000)
           if [ "$code" != "200" ]; then
-            echo "::error::io.diagrid.dapr:dapr-spring-ai-parent:${VERSION} not found on Maven Central (HTTP $code). Publish it and wait for propagation before running post-release."
+            echo "::error::io.diagrid:diagrid-spring-ai-parent:${VERSION} not found on Maven Central (HTTP $code). Publish it and wait for propagation before running post-release."
             exit 1
           fi
           echo "Found on Central ✓"
@@ -125,12 +125,12 @@ jobs:
 
           # Apply the bump in the working tree — NO local commit. versions:set covers the reactor;
           # the standalone example apps aren't reactor modules, so bump their pinned versions by hand.
-          current=$(cd dapr-spring-ai && mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
+          current=$(cd diagrid-spring-ai && mvn -q -DforceStdout help:evaluate -Dexpression=project.version)
           echo "Bumping ${current} -> ${NEXT}"
-          (cd dapr-spring-ai && mvn -B versions:set -DnewVersion="${NEXT}" -DprocessAllModules -DgenerateBackupPoms=false)
+          (cd diagrid-spring-ai && mvn -B versions:set -DnewVersion="${NEXT}" -DprocessAllModules -DgenerateBackupPoms=false)
           esc_current=$(printf '%s' "${current}" | sed -e 's/[][\/.*^$]/\\&/g')
           esc_next=$(printf '%s' "${NEXT}" | sed -e 's/[\/&]/\\&/g')
-          for pom in dapr-spring-ai/examples/*/pom.xml; do
+          for pom in diagrid-spring-ai/examples/*/pom.xml; do
             sed -i "s/${esc_current}/${esc_next}/g" "${pom}"
           done
 

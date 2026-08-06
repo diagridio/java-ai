@@ -24,21 +24,21 @@ durable with no application-code changes:
 
 ```xml
 <dependency>
-  <groupId>io.diagrid.dapr</groupId>
-  <artifactId>dapr-spring-ai-starter</artifactId>
+  <groupId>io.diagrid</groupId>
+  <artifactId>diagrid-spring-ai-starter</artifactId>
   <version>0.1.0</version>
 </dependency>
 ```
 
 The other modules are optional and independent — add whichever you need (same
-`io.diagrid.dapr` group and version):
+`io.diagrid` group and version):
 
 | Artifact | What it adds |
 |---|---|
-| `dapr-spring-ai-starter` | durable `ChatClient` over Dapr Workflows — the one you usually want |
-| `dapr-spring-ai-agent-registry` | auto-publish agents to a Dapr state store for discovery |
-| `dapr-spring-ai-memory` | durable chat memory backed by a Dapr state store |
-| `dapr-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
+| `diagrid-spring-ai-starter` | durable `ChatClient` over Dapr Workflows — the one you usually want |
+| `diagrid-spring-ai-agent-registry` | auto-publish agents to a Dapr state store for discovery |
+| `diagrid-spring-ai-memory` | durable chat memory backed by a Dapr state store |
+| `diagrid-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
 
 All are on Maven Central and need a Dapr sidecar with the workflow building block
 enabled — see [Requirements](#requirements) for JDK and runtime notes.
@@ -101,7 +101,7 @@ precedence); an advisor ordered *after* it will never run. The library logs a
 one-time WARN naming any stranded advisors it finds. Request-observing advisors
 (memory, RAG, logging) already sit earlier by default and are unaffected.
 
-See **[`dapr-spring-ai-starter/README.md`](dapr-spring-ai/dapr-spring-ai-starter/README.md)** for a
+See **[`diagrid-spring-ai-starter/README.md`](diagrid-spring-ai/diagrid-spring-ai-starter/README.md)** for a
 short cookbook on defining agents — the two shapes (`@Component` vs `@Bean`), the hybrid pattern,
 tool crash-safety, and the wait-budget timeout behaviour.
 
@@ -349,7 +349,7 @@ a default rather than on an individual request.
 
 ## Agent registry
 
-The `dapr-spring-ai-agent-registry` module (separate dependency, independent of
+The `diagrid-spring-ai-agent-registry` module (separate dependency, independent of
 durability) publishes each agent to a Dapr state store so tooling like the
 Diagrid dashboard and other Dapr Agents can discover it. Add the dependency and
 it works with no code changes.
@@ -426,7 +426,7 @@ annotations, no stack inspection), and it has limits worth knowing:
 
 ## Chat memory
 
-The `dapr-spring-ai-memory` module (separate dependency) backs Spring AI's chat
+The `diagrid-spring-ai-memory` module (separate dependency) backs Spring AI's chat
 memory with a Dapr state store, so conversation history survives restarts and is
 shared across replicas — durable conversations to go with durable execution.
 
@@ -470,7 +470,7 @@ Notes:
 
 ## Conversation API
 
-The `dapr-spring-ai-conversation` module (separate dependency, independent of
+The `diagrid-spring-ai-conversation` module (separate dependency, independent of
 durability) provides a Spring AI `ChatModel` whose LLM calls go through the
 Dapr sidecar's [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/)
 instead of a provider SDK — swap providers by component configuration, keep
@@ -491,11 +491,11 @@ Model selection follows Spring AI's provider-starter convention: the model
 registers unless `spring.ai.model.chat` selects another provider (set it to
 `dapr` to pick this one explicitly, `none` to disable all chat models).
 Capabilities, caveats, and component YAML examples:
-[module README](dapr-spring-ai/dapr-spring-ai-conversation/README.md).
+[module README](diagrid-spring-ai/diagrid-spring-ai-conversation/README.md).
 
 ## Roadmap
 
-- [x] `dapr-spring-ai` — durable `ChatClient` over Dapr Workflows
+- [x] `diagrid-spring-ai` — durable `ChatClient` over Dapr Workflows
 - [x] Dapr [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/) integration — Spring AI `ChatModel` backed by Dapr's Conversation building block
 - [x] Chat memory backed by a Dapr state store — durable conversation history via Spring AI's `ChatMemory`
 - [x] Agent registry backed by a Dapr state store
