@@ -11,7 +11,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param agentName  namespace for the state-store keys, matching the Dapr Agents key format
  *                   {@code {agentName}:_memory_{conversationId}} (default {@code default})
  */
-@ConfigurationProperties("dapr.spring-ai.memory")
+@ConfigurationProperties("diagrid.spring-ai.memory")
 public record DaprChatMemoryProperties(Boolean enabled, String statestore, String agentName) {
 
   public DaprChatMemoryProperties {

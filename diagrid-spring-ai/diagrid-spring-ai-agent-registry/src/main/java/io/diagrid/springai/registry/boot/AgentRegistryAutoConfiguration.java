@@ -23,12 +23,12 @@ import org.springframework.context.annotation.Bean;
 /**
  * Auto-configuration that registers Spring AI {@code ChatClient} agents in a Dapr state store the
  * first time each is called. Activates when Spring AI's ChatClient and the Dapr client are on the
- * classpath and {@code dapr.spring-ai.registry.enabled} is not false. Requires a {@link ChatModel}
+ * classpath and {@code diagrid.spring-ai.registry.enabled} is not false. Requires a {@link ChatModel}
  * bean (the source of the recorded provider/model) and registers ChatClients defined as beans.
  */
 @AutoConfiguration
 @ConditionalOnClass({ChatClient.class, DaprClient.class})
-@ConditionalOnProperty(prefix = "dapr.spring-ai.registry", name = "enabled", havingValue = "true",
+@ConditionalOnProperty(prefix = "diagrid.spring-ai.registry", name = "enabled", havingValue = "true",
     matchIfMissing = true)
 @EnableConfigurationProperties(AgentRegistryProperties.class)
 public class AgentRegistryAutoConfiguration {
@@ -81,7 +81,7 @@ public class AgentRegistryAutoConfiguration {
       return configured;
     }
     String fallback = applicationName != null && !applicationName.isBlank() ? applicationName : DEFAULT_APP_ID;
-    LOG.warn("dapr.spring-ai.registry.app-id is not set; recording agents under app id '{}'. Set it to "
+    LOG.warn("diagrid.spring-ai.registry.app-id is not set; recording agents under app id '{}'. Set it to "
         + "your Dapr app id (the sidecar's --app-id) if that differs — tooling correlates agents to "
         + "their app and workflows by it.", fallback);
     return fallback;

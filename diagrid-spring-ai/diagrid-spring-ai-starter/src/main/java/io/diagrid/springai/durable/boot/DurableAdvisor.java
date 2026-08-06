@@ -47,9 +47,9 @@ import org.slf4j.LoggerFactory;
  * never run. The advisor logs a one-time WARN naming any such stranded advisors (the framework's own
  * {@link ChatModelCallAdvisor}, which this one deliberately replaces, is not flagged). The
  * <b>generic</b> instance (added to every ChatClient) runs at {@code LOWEST_PRECEDENCE - 1} and is
- * named {@code DaprDurableAdvisor}; a <b>per-agent</b> instance (added to a named ChatClient bean,
+ * named {@code DiagridDurableAdvisor}; a <b>per-agent</b> instance (added to a named ChatClient bean,
  * running under a workflow named after the bean) runs at {@code LOWEST_PRECEDENCE - 2} so it wins over
- * the generic one on the same client, and is named {@code DaprDurableAdvisor[<workflowName>]} for
+ * the generic one on the same client, and is named {@code DiagridDurableAdvisor[<workflowName>]} for
  * traceability.
  *
  * <p><b>Tools.</b> The advertised tool surface is the union of (a) globally discovered {@code @Tool}
@@ -73,7 +73,7 @@ public final class DurableAdvisor implements CallAdvisor {
   private static final Logger LOG = LoggerFactory.getLogger(DurableAdvisor.class);
 
   /** Base advisor name; per-agent instances append {@code [<workflowName>]}. */
-  static final String NAME_PREFIX = "DaprDurableAdvisor";
+  static final String NAME_PREFIX = "DiagridDurableAdvisor";
 
   /**
    * The workflow instance id slot — used both ways (dapr-agents' {@code instance_id or uuid4()}):
@@ -91,10 +91,10 @@ public final class DurableAdvisor implements CallAdvisor {
    *       to correlate a call to its workflow (e.g. find it in the Diagrid dashboard).</li>
    * </ul>
    */
-  public static final String INSTANCE_ID_KEY = "dapr.spring-ai.instance-id";
+  public static final String INSTANCE_ID_KEY = "diagrid.spring-ai.instance-id";
 
   /** Context / response-metadata key carrying the workflow name a successful call ran under. */
-  public static final String WORKFLOW_NAME_KEY = "dapr.spring-ai.workflow-name";
+  public static final String WORKFLOW_NAME_KEY = "diagrid.spring-ai.workflow-name";
 
   private final DurableRunner runner;
   private final DiscoveredTools tools;

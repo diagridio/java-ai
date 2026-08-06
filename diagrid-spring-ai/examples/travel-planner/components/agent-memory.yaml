@@ -10,4 +10,4 @@ spec:
       value: localhost:6379
     # Plain state store (no actorStateStore) — Spring AI ChatMemory persistence, keyed by
     # conversationId. Same shared dapr_redis as kvstore; the name matches the managed 'agent-memory'
-    # store in Catalyst, so dapr.spring-ai.memory.statestore=agent-memory works locally and on Catalyst.
+    # store in Catalyst, so diagrid.spring-ai.memory.statestore=agent-memory works locally and on Catalyst.

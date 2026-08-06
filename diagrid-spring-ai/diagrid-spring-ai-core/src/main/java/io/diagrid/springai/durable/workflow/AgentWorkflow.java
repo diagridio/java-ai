@@ -39,7 +39,7 @@ import java.util.List;
  * policy, every LLM and tool activity is scheduled with it, so a transient failure (provider rate
  * limit, network blip) is retried by the runtime instead of failing the whole workflow. The options
  * are fixed at construction and therefore constant across replays. The no-arg constructor disables
- * retries (one attempt). See {@code DaprSpringAiProperties.Retry}.
+ * retries (one attempt). See {@code DiagridSpringAiProperties.Retry}.
  */
 public final class AgentWorkflow implements Workflow {
 
@@ -142,7 +142,7 @@ public final class AgentWorkflow implements Workflow {
     if (llmTurnsSoFar >= maxIterations) {
       throw new IllegalStateException(
           "Agent exceeded the maximum of " + maxIterations + " LLM iterations without completing; the "
-              + "model kept requesting tools. Raise dapr.spring-ai.max-iterations if this is a "
+              + "model kept requesting tools. Raise diagrid.spring-ai.max-iterations if this is a "
               + "legitimate long tool chain, or investigate a misbehaving model/tool.");
     }
   }

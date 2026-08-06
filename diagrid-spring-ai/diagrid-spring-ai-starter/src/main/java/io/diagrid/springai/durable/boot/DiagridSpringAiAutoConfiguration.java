@@ -30,7 +30,7 @@ import org.springframework.context.annotation.Bean;
 /**
  * Auto-configuration that makes Spring AI {@code ChatClient} calls durable via Dapr Workflows.
  *
- * <p>Activates when a {@link ChatModel} bean is present and {@code dapr.spring-ai.enabled} is not
+ * <p>Activates when a {@link ChatModel} bean is present and {@code diagrid.spring-ai.enabled} is not
  * false. Wires the Dapr workflow client, an in-process workflow runtime (the worker, registering the
  * generic agent workflow plus the LLM and tool activities), discovers {@code @Tool} beans, and adds
  * the {@link DurableAdvisor} to every {@code ChatClient} via a {@link ChatClientCustomizer}. No user
@@ -42,10 +42,10 @@ import org.springframework.context.annotation.Bean;
 // autoconfiguration has contributed its definitions.
 @AutoConfiguration
 @ConditionalOnClass({ChatModel.class, DaprWorkflowClient.class})
-@ConditionalOnProperty(prefix = "dapr.spring-ai", name = "enabled", havingValue = "true",
+@ConditionalOnProperty(prefix = "diagrid.spring-ai", name = "enabled", havingValue = "true",
     matchIfMissing = true)
-@EnableConfigurationProperties(DaprSpringAiProperties.class)
-public class DaprSpringAiAutoConfiguration {
+@EnableConfigurationProperties(DiagridSpringAiProperties.class)
+public class DiagridSpringAiAutoConfiguration {
 
   @Bean
   @ConditionalOnMissingBean
@@ -63,7 +63,7 @@ public class DaprSpringAiAutoConfiguration {
 
   @Bean
   @ConditionalOnMissingBean
-  public DurableRunner durableRunner(DaprWorkflowClient client, DaprSpringAiProperties properties) {
+  public DurableRunner durableRunner(DaprWorkflowClient client, DiagridSpringAiProperties properties) {
     return new DurableRunner(client, properties.completionTimeout());
   }
 
@@ -91,7 +91,7 @@ public class DaprSpringAiAutoConfiguration {
       ChatModel chatModel,
       ChatOptionsFactory optionsFactory,
       DiscoveredTools tools,
-      DaprSpringAiProperties properties,
+      DiagridSpringAiProperties properties,
       ObjectProvider<DurableTracing> tracing,
       ApplicationContext context)
       throws Exception {

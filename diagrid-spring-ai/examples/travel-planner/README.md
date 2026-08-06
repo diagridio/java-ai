@@ -277,13 +277,13 @@ You'll see one trace shaped like:
 
 ```
 travel.plan                             ← orchestration root span (opened by TravelOrchestrationService)
- ├─ dapr.springai.durable.call          ← flight agent's ChatClient.call() (parallel branch)
- │   ├─ dapr.springai.llm.invoke        ← worker thread (a model turn)
+ ├─ diagrid.springai.durable.call          ← flight agent's ChatClient.call() (parallel branch)
+ │   ├─ diagrid.springai.llm.invoke        ← worker thread (a model turn)
  │   │   └─ chat gpt-4o-mini            ← Spring AI's own gen_ai span, parented for free
- │   └─ dapr.springai.tool.invoke       ← searchFlights (worker)
- ├─ dapr.springai.durable.call          ← hotel agent (parallel branch)
- ├─ dapr.springai.durable.call          ← activity agent (parallel branch)
- └─ dapr.springai.durable.call          ← itinerary formatter
+ │   └─ diagrid.springai.tool.invoke       ← searchFlights (worker)
+ ├─ diagrid.springai.durable.call          ← hotel agent (parallel branch)
+ ├─ diagrid.springai.durable.call          ← activity agent (parallel branch)
+ └─ diagrid.springai.durable.call          ← itinerary formatter
 ```
 
 Each multi-agent endpoint opens a **named root span** (`travel.plan`, `travel.research`, …) in
@@ -305,7 +305,7 @@ thread must propagate context; sequential calls nest automatically.)
 > an `ObservationRegistry` is present. That client propagates the caller's W3C trace context to the
 > sidecar when scheduling, so the sidecar's `durabletask` spans nest under the app's `travel.plan`
 > trace instead of forming a separate one. Each run still carries the workflow **instance id** (a
-> random UUID, echoed as `dapr.spring-ai.instance-id`) as a fallback correlation key. Requires
+> random UUID, echoed as `diagrid.spring-ai.instance-id`) as a fallback correlation key. Requires
 > dapr-sdk-workflows ≥ 1.18 and a sidecar that honors the propagated context.
 >
 > Also note: Boot 4 doesn't derive the OTel `service.name` from `spring.application.name`, so
@@ -314,8 +314,8 @@ thread must propagate context; sequential calls nest automatically.)
 
 Two things work regardless of the trace tree:
 
-- **Instance id on the response.** Every successful call echoes `dapr.spring-ai.instance-id` /
-  `dapr.spring-ai.workflow-name` into `ChatResponse.getMetadata()` — the handle you search Jaeger by.
+- **Instance id on the response.** Every successful call echoes `diagrid.spring-ai.instance-id` /
+  `diagrid.spring-ai.workflow-name` into `ChatResponse.getMetadata()` — the handle you search Jaeger by.
 - **Log correlation.** The activity/model log lines carry the instance id and tool name via MDC
   (`[instance=…] [tool=…]`), so you can follow one call through the log even with no collector.
 

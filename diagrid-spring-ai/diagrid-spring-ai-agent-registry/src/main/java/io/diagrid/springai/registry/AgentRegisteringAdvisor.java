@@ -26,9 +26,9 @@ public final class AgentRegisteringAdvisor implements CallAdvisor {
 
   /**
    * Name <b>prefix</b> of the durability advisor; its presence in the chain marks an agent as durable.
-   * Per-agent instances are named {@code DaprDurableAdvisor[<workflowName>]}, so detection is by prefix.
+   * Per-agent instances are named {@code DiagridDurableAdvisor[<workflowName>]}, so detection is by prefix.
    */
-  public static final String DURABLE_ADVISOR_NAME = "DaprDurableAdvisor";
+  public static final String DURABLE_ADVISOR_NAME = "DiagridDurableAdvisor";
 
   private final String agentName;
   private final AgentRegistrar registrar;
@@ -62,7 +62,7 @@ public final class AgentRegisteringAdvisor implements CallAdvisor {
   }
 
   // An agent is durable when the durability advisor is present in its call chain (match by name
-  // prefix, since per-agent instances are named DaprDurableAdvisor[<workflowName>]).
+  // prefix, since per-agent instances are named DiagridDurableAdvisor[<workflowName>]).
   private static boolean isDurable(CallAdvisorChain chain) {
     return chain.getCallAdvisors().stream().anyMatch(a -> a.getName().startsWith(DURABLE_ADVISOR_NAME));
   }

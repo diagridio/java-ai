@@ -6,29 +6,29 @@ import static org.junit.jupiter.api.Assertions.assertNull;
 
 import io.dapr.workflows.WorkflowTaskOptions;
 import io.dapr.workflows.WorkflowTaskRetryPolicy;
-import io.diagrid.springai.durable.boot.DaprSpringAiProperties.Retry;
+import io.diagrid.springai.durable.boot.DiagridSpringAiProperties.Retry;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
 
-class DaprSpringAiPropertiesTest {
+class DiagridSpringAiPropertiesTest {
 
   @Test
   void maxIterationsDefaultsWhenUnset() {
     assertEquals(
         io.diagrid.springai.durable.workflow.AgentWorkflow.DEFAULT_MAX_ITERATIONS,
-        new DaprSpringAiProperties(null, null, null, null).maxIterations());
+        new DiagridSpringAiProperties(null, null, null, null).maxIterations());
   }
 
   @Test
   void completionTimeoutDefaultsToFiveMinutes() {
     assertEquals(
         Duration.ofMinutes(5),
-        new DaprSpringAiProperties(null, null, null, null).completionTimeout());
+        new DiagridSpringAiProperties(null, null, null, null).completionTimeout());
   }
 
   @Test
   void retryDefaultsAreAppliedWhenUnset() {
-    Retry retry = new DaprSpringAiProperties(null, null, null, null).retry();
+    Retry retry = new DiagridSpringAiProperties(null, null, null, null).retry();
     WorkflowTaskOptions options = retry.toWorkflowTaskOptions();
     assertNotNull(options, "retries are on by default");
     WorkflowTaskRetryPolicy policy = options.getRetryPolicy();

@@ -44,7 +44,7 @@ in preview on the Dapr side:
 ```
 
 ```properties
-dapr.spring-ai.conversation.component=my-llm
+diagrid.spring-ai.conversation.component=my-llm
 ```
 
 For local development without a provider key, use Dapr's `echo` component:
@@ -83,10 +83,10 @@ build a `ChatClient` on it) and call it.
 
 | Property | Default | Meaning |
 |---|---|---|
-| `dapr.spring-ai.conversation.component` | — (**required**) | Dapr conversation component routing LLM traffic |
-| `dapr.spring-ai.conversation.context-id` | — | conversation session id handed to the sidecar |
-| `dapr.spring-ai.conversation.scrub-pii` | `false` | sidecar obfuscates PII in inputs and outputs |
-| `dapr.spring-ai.conversation.temperature` | — | default sampling temperature (see caveat above) |
+| `diagrid.spring-ai.conversation.component` | — (**required**) | Dapr conversation component routing LLM traffic |
+| `diagrid.spring-ai.conversation.context-id` | — | conversation session id handed to the sidecar |
+| `diagrid.spring-ai.conversation.scrub-pii` | `false` | sidecar obfuscates PII in inputs and outputs |
+| `diagrid.spring-ai.conversation.temperature` | — | default sampling temperature (see caveat above) |
 
 ## Selecting the model
 

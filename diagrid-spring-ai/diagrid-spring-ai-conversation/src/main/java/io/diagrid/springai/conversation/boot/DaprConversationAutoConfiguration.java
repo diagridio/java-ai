@@ -55,7 +55,7 @@ public class DaprConversationAutoConfiguration {
       DaprConversationProperties properties) {
     if (properties.component() == null || properties.component().isBlank()) {
       throw new IllegalStateException(
-          "dapr.spring-ai.conversation.component is required: name the Dapr conversation component "
+          "diagrid.spring-ai.conversation.component is required: name the Dapr conversation component "
               + "that routes LLM traffic (e.g. a conversation.openai or conversation.echo "
               + "component), or select another chat model via spring.ai.model.chat.");
     }

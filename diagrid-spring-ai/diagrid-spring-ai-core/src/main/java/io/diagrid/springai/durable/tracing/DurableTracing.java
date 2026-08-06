@@ -25,20 +25,20 @@ import java.util.function.Supplier;
 public interface DurableTracing {
 
   /** Caller-side observation name for one durable {@code ChatClient} call. */
-  String CALL_OBSERVATION = "dapr.springai.durable.call";
+  String CALL_OBSERVATION = "diagrid.springai.durable.call";
   /** Activity span name for a model turn. */
-  String LLM_SPAN = "dapr.springai.llm.invoke";
+  String LLM_SPAN = "diagrid.springai.llm.invoke";
   /** Activity span name for a tool call. */
-  String TOOL_SPAN = "dapr.springai.tool.invoke";
+  String TOOL_SPAN = "diagrid.springai.tool.invoke";
 
   /** Attribute / SLF4J MDC key for the workflow instance id (high cardinality). */
-  String KEY_INSTANCE_ID = "dapr.springai.instance_id";
+  String KEY_INSTANCE_ID = "diagrid.springai.instance_id";
   /** Attribute key for the workflow name (low cardinality). */
-  String KEY_WORKFLOW_NAME = "dapr.springai.workflow_name";
+  String KEY_WORKFLOW_NAME = "diagrid.springai.workflow_name";
   /** Attribute / MDC key for the tool name in the tool activity. */
-  String KEY_TOOL_NAME = "dapr.springai.tool_name";
+  String KEY_TOOL_NAME = "diagrid.springai.tool_name";
   /** Low-cardinality outcome attribute on the caller observation: completed | timeout | failed. */
-  String KEY_OUTCOME = "dapr.springai.outcome";
+  String KEY_OUTCOME = "diagrid.springai.outcome";
 
   /**
    * Runs {@code call} as an observed durable call on the caller thread. The implementation starts an

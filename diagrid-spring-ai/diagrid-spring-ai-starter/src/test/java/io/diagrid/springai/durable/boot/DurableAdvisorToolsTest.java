@@ -127,8 +127,8 @@ class DurableAdvisorToolsTest {
     assertEquals(Ordered.LOWEST_PRECEDENCE - 2, perAgent.getOrder());
     assertTrue(perAgent.getOrder() < generic.getOrder(), "per-agent advisor must win by precedence");
 
-    assertEquals("DaprDurableAdvisor", generic.getName(), "generic advisor keeps the base name");
-    assertEquals("DaprDurableAdvisor[weatherAssistant]", perAgent.getName(),
+    assertEquals("DiagridDurableAdvisor", generic.getName(), "generic advisor keeps the base name");
+    assertEquals("DiagridDurableAdvisor[weatherAssistant]", perAgent.getName(),
         "per-agent advisor name includes the workflow name for traceability");
 
     assertEquals("spring-ai.weatherAssistant.workflow",

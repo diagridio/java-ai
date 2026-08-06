@@ -10,4 +10,4 @@ spec:
       value: localhost:6379
     # Plain state store (no actorStateStore) — the agent registry only does get/save/delete.
     # Same shared dapr_redis as kvstore; the name matches the managed 'agent-registry' store in
-    # Catalyst, so dapr.spring-ai.registry.statestore=agent-registry works locally and on Catalyst.
+    # Catalyst, so diagrid.spring-ai.registry.statestore=agent-registry works locally and on Catalyst.

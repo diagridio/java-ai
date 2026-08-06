@@ -17,11 +17,11 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param maxIterations     hard cap on LLM turns per call; the workflow fails if the model still
  *                          requests tools past it (default {@value AgentWorkflow#DEFAULT_MAX_ITERATIONS})
  */
-@ConfigurationProperties("dapr.spring-ai")
-public record DaprSpringAiProperties(
+@ConfigurationProperties("diagrid.spring-ai")
+public record DiagridSpringAiProperties(
     Boolean enabled, Duration completionTimeout, Retry retry, Integer maxIterations) {
 
-  public DaprSpringAiProperties {
+  public DiagridSpringAiProperties {
     if (enabled == null) {
       enabled = true;
     }

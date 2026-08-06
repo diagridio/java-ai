@@ -66,11 +66,11 @@ partly trade off today.
 ### Wait-budget timeout and retry
 
 By default each call runs under a fresh random workflow instance id (no dedup,
-no content hashing). A call blocks only for `dapr.spring-ai.completion-timeout`; if that elapses the
+no content hashing). A call blocks only for `diagrid.spring-ai.completion-timeout`; if that elapses the
 workflow keeps running and the call throws `DurableCallTimeoutException` carrying the instance id —
 the timeout is a wait budget, not a failure. The id (and workflow name) are echoed on every
 successful response — in `ChatClientResponse.context()` and `ChatResponse.getMetadata()` under
-`dapr.spring-ai.instance-id` / `dapr.spring-ai.workflow-name`, for correlation.
+`diagrid.spring-ai.instance-id` / `diagrid.spring-ai.workflow-name`, for correlation.
 
 **To recover a timed-out (or crashed) call, schedule under an id you own and repeat the same call**
 with that id: a repeat attaches to the existing instance — running → waits, completed → returns the

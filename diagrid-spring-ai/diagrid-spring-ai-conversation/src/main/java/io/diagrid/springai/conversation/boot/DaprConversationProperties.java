@@ -14,7 +14,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param temperature default sampling temperature (optional; the pinned Dapr SDK transmits 0.0
  *                    when unset — see the ChatModel Javadoc)
  */
-@ConfigurationProperties("dapr.spring-ai.conversation")
+@ConfigurationProperties("diagrid.spring-ai.conversation")
 public record DaprConversationProperties(String component, String contextId, Boolean scrubPii,
     Double temperature) {
 

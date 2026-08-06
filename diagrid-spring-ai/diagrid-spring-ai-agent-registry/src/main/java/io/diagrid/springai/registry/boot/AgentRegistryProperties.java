@@ -14,7 +14,7 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  *                   and workflows by it. When blank, falls back to {@code spring.application.name},
  *                   then {@code spring-ai-app}
  */
-@ConfigurationProperties("dapr.spring-ai.registry")
+@ConfigurationProperties("diagrid.spring-ai.registry")
 public record AgentRegistryProperties(Boolean enabled, String statestore, String team, String appId) {
 
   public AgentRegistryProperties {

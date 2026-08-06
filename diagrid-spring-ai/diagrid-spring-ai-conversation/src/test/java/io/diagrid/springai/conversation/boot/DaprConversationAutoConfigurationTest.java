@@ -25,7 +25,7 @@ class DaprConversationAutoConfigurationTest {
 
   @Test
   void activatesByDefaultWhenTheComponentPropertyIsSet() {
-    runner.withPropertyValues("dapr.spring-ai.conversation.component=echo")
+    runner.withPropertyValues("diagrid.spring-ai.conversation.component=echo")
         .run(context -> {
           assertTrue(context.getStartupFailure() == null);
           assertNotNull(context.getBean(DaprConversationChatModel.class));
@@ -35,7 +35,7 @@ class DaprConversationAutoConfigurationTest {
   @Test
   void activatesWhenSelectedAsTheChatModel() {
     runner.withPropertyValues("spring.ai.model.chat=dapr",
-            "dapr.spring-ai.conversation.component=echo")
+            "diagrid.spring-ai.conversation.component=echo")
         .run(context -> {
           assertTrue(context.getStartupFailure() == null);
           assertNotNull(context.getBean(DaprConversationChatModel.class));
@@ -45,7 +45,7 @@ class DaprConversationAutoConfigurationTest {
   @Test
   void backsOffWhenAnotherChatModelIsSelected() {
     runner.withPropertyValues("spring.ai.model.chat=openai",
-            "dapr.spring-ai.conversation.component=echo")
+            "diagrid.spring-ai.conversation.component=echo")
         .run(context -> {
           assertTrue(context.getStartupFailure() == null);
           assertEquals(0, context.getBeansOfType(DaprConversationChatModel.class).size());
@@ -55,7 +55,7 @@ class DaprConversationAutoConfigurationTest {
   @Test
   void backsOffWhenChatModelsAreDisabledWithNone() {
     runner.withPropertyValues("spring.ai.model.chat=none",
-            "dapr.spring-ai.conversation.component=echo")
+            "diagrid.spring-ai.conversation.component=echo")
         .run(context -> {
           assertTrue(context.getStartupFailure() == null);
           assertEquals(0, context.getBeansOfType(DaprConversationChatModel.class).size());
@@ -64,7 +64,7 @@ class DaprConversationAutoConfigurationTest {
 
   @Test
   void userDefinedModelBeanWinsOverTheAutoConfiguredOne() {
-    runner.withPropertyValues("dapr.spring-ai.conversation.component=echo")
+    runner.withPropertyValues("diagrid.spring-ai.conversation.component=echo")
         .withUserConfiguration(ExistingDaprModelConfig.class)
         .run(context -> {
           assertTrue(context.getStartupFailure() == null);
@@ -81,7 +81,7 @@ class DaprConversationAutoConfigurationTest {
     new ApplicationContextRunner()
         .withConfiguration(AutoConfigurations.of(DaprConversationAutoConfiguration.class))
         .withUserConfiguration(DaprClientConsumerConfig.class)
-        .withPropertyValues("dapr.spring-ai.conversation.component=echo")
+        .withPropertyValues("diagrid.spring-ai.conversation.component=echo")
         .run(context -> {
           assertTrue(context.getStartupFailure() == null);
           assertNotNull(context.getBean(DaprClientConsumer.class).client);
@@ -94,16 +94,16 @@ class DaprConversationAutoConfigurationTest {
     runner.run(context -> {
       assertFalse(context.getStartupFailure() == null);
       Throwable rootCause = rootCause(context.getStartupFailure());
-      assertTrue(rootCause.getMessage().contains("dapr.spring-ai.conversation.component"));
+      assertTrue(rootCause.getMessage().contains("diagrid.spring-ai.conversation.component"));
     });
   }
 
   @Test
   void configuredPropertiesReachTheModel() {
-    runner.withPropertyValues("dapr.spring-ai.conversation.component=openai",
-            "dapr.spring-ai.conversation.context-id=ctx-42",
-            "dapr.spring-ai.conversation.scrub-pii=true",
-            "dapr.spring-ai.conversation.temperature=0.3")
+    runner.withPropertyValues("diagrid.spring-ai.conversation.component=openai",
+            "diagrid.spring-ai.conversation.context-id=ctx-42",
+            "diagrid.spring-ai.conversation.scrub-pii=true",
+            "diagrid.spring-ai.conversation.temperature=0.3")
         .run(context -> {
           assertTrue(context.getStartupFailure() == null);
           DaprConversationChatModel model = context.getBean(DaprConversationChatModel.class);
@@ -166,7 +166,7 @@ class DaprConversationAutoConfigurationTest {
 
   @Test
   void coexistsWithAForeignChatModelBeanLikeTheProviderStartersDo() {
-    runner.withPropertyValues("dapr.spring-ai.conversation.component=echo")
+    runner.withPropertyValues("diagrid.spring-ai.conversation.component=echo")
         .withUserConfiguration(ExistingChatModelConfig.class)
         .run(context -> {
           assertTrue(context.getStartupFailure() == null);

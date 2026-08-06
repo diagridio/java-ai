@@ -23,7 +23,7 @@ import org.springframework.context.annotation.Bean;
  */
 @AutoConfiguration
 @ConditionalOnClass({ObservationRegistry.class, Tracer.class})
-@ConditionalOnProperty(prefix = "dapr.spring-ai", name = "enabled", havingValue = "true",
+@ConditionalOnProperty(prefix = "diagrid.spring-ai", name = "enabled", havingValue = "true",
     matchIfMissing = true)
 public class DurableObservabilityAutoConfiguration {
 
