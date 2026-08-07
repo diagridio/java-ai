@@ -51,8 +51,7 @@ The other modules are optional and independent — add whichever you need (same
 
 | Artifact | What it adds |
 |---|---|
-| `diagrid-spring-ai-starter` | durable `ChatClient`, every call run as a workflow — the one you usually want |
-| `diagrid-spring-ai-agent-registry` | auto-publish agents to a state store for discovery |
+| `diagrid-spring-ai-starter` | durable `ChatClient` (every call run as a workflow) plus agent-registry auto-publishing — the one you usually want |
 | `diagrid-spring-ai-memory` | durable chat memory backed by a state store |
 | `diagrid-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
 
@@ -367,10 +366,10 @@ a default rather than on an individual request.
 
 ## Agent registry
 
-The `diagrid-spring-ai-agent-registry` module (separate dependency, independent of
-durability) publishes each agent to a Dapr state store so tooling like the
-Diagrid dashboard and other Dapr Agents can discover it. Add the dependency and
-it works with no code changes.
+The starter publishes each agent to a Dapr state store so tooling like the
+Diagrid dashboard and other Dapr Agents can discover it. This is built into
+`diagrid-spring-ai-starter` (no separate dependency) and on by default — it works
+with no code changes; set `diagrid.spring-ai.registry.enabled=false` to turn it off.
 
 Each `ChatClient` **bean** is registered in two steps: a **thin record**
 (name, app id, model) is written **at startup** so the agent shows up

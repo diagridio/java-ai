@@ -7,7 +7,7 @@
   <parent>
     <groupId>io.diagrid</groupId>
     <artifactId>diagrid-spring-ai-parent</artifactId>
-    <version>0.1.0-SNAPSHOT</version>
+    <version>0.2.0-SNAPSHOT</version>
   </parent>
 
   <artifactId>diagrid-spring-ai-starter</artifactId>
@@ -31,6 +31,14 @@
     <dependency>
       <groupId>org.springframework.boot</groupId>
       <artifactId>spring-boot-autoconfigure</artifactId>
+    </dependency>
+
+    <!-- Dapr state store client (DaprClient.saveState/getState) for the agent registry. Declared
+         directly because the registry code imports io.dapr.client.* (it is otherwise only present
+         transitively via core -> dapr-sdk-workflows). -->
+    <dependency>
+      <groupId>io.dapr</groupId>
+      <artifactId>dapr-sdk</artifactId>
     </dependency>
 
     <!-- Dapr's observed workflow client: ObservationDaprWorkflowClient wraps the workflow client with
@@ -68,6 +76,13 @@
     <dependency>
       <groupId>io.micrometer</groupId>
       <artifactId>micrometer-tracing-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- Registry unit tests (AgentRegistrarTest, AgentRecordFactoryTest) mock the Dapr client. -->
+    <dependency>
+      <groupId>org.mockito</groupId>
+      <artifactId>mockito-core</artifactId>
       <scope>test</scope>
     </dependency>
   </dependencies>
