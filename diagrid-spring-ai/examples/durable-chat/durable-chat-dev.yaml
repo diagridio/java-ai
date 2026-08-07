@@ -1,0 +1,10 @@
+version: 1
+common:
+  appLogDestination: console
+apps:
+  - appID: durable-chat
+    appDirPath: ./
+    appPort: 8080
+    # The durable workflow store is managed by Catalyst (provisioned by `--enable-managed-workflow`
+    # when the project is created). Export OPENAI_API_KEY before `diagrid dev run`.
+    command: ["mvn", "spring-boot:run"]
