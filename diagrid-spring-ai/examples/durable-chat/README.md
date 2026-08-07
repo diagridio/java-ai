@@ -6,11 +6,9 @@ There is no durability code in this app; look at `ChatController` and `BookingTo
 
 ## Prerequisites
 
-- Java 17+ and Maven
-- [Dapr CLI](https://docs.dapr.io/getting-started/install-dapr-cli/) initialized: `dapr init`
-  (provides the placement + scheduler services the workflow engine needs)
-- [Ollama](https://ollama.com) running with a tool-capable model:
-  `ollama pull llama3.1:8b`
+- [Diagrid CLI](https://docs.diagrid.io/catalyst/references/cli-reference/overview)
+- JDK 17+ and Maven 3.9+
+- An [OpenAI API key](https://platform.openai.com/api-keys)
 
 ## Build
 
@@ -23,17 +21,17 @@ cd examples/durable-chat
 mvn package -DskipTests
 ```
 
-## Run (smoke test — see it work)
+## Run on Catalyst
 
-`dapr run` starts the sidecar (with the in-memory actor state store in `./components`) alongside the app:
+Catalyst runs the app against a **managed** data plane — no sidecar, no state store to stand up.
+`--enable-managed-workflow` provisions the workflow store the durable path needs.
 
 ```bash
-dapr run \
-  --app-id durable-chat \
-  --app-port 8080 \
-  --dapr-grpc-port 50001 \
-  --resources-path ./components \
-  -- mvn spring-boot:run
+export OPENAI_API_KEY=sk-...
+
+diagrid login
+diagrid project create durable-chat --enable-managed-workflow --wait --use
+diagrid dev run -f durable-chat-dev.yaml --approve
 ```
 
 In another terminal:
@@ -48,38 +46,26 @@ cat bookings.log
 
 Every call ran as a Dapr Workflow: the model call and the `bookFlight` tool each executed as a
 checkpointed activity. That checkpointing is what survives a mid-flight worker crash (next section) —
-a completed step is never re-run on recovery. Note there is **no** reissue dedup:
-re-issue the same request and it starts a *new* workflow and books *again* (`bookings.log` gets a
-second line). Making a re-submit idempotent is the tool's job — key off a business value in the
-tool's arguments (here, the booking reference); the library adds no dedup of its own.
+a completed step is never re-run on recovery. Note there is **no** reissue dedup: re-issue the same
+request and it starts a *new* workflow and books *again* (`bookings.log` gets a second line). Making a
+re-submit idempotent is the tool's job — key off a business value in the tool's arguments (here, the
+booking reference); the library adds no dedup of its own.
+
+> Prefer a local model? Point the OpenAI SDK at a local [Ollama](https://ollama.com) by overriding
+> `spring.ai.openai.base-url` (see the commented block in `application.properties`) — no key needed.
 
 ## Test durability across a crash
 
-To prove crash recovery you need the sidecar to outlive the app, so run them separately.
+The durable path survives a hard crash of the app (which also hosts the in-process workflow worker):
+an in-flight `ChatClient.call()` resumes from its checkpoint on restart, and the completed model call
+and tool call are **not** re-run. On Catalyst the workflow store is managed, so it outlives the app —
+just kill and restart:
 
-1. Start a standalone sidecar (no app) that keeps running:
-
-   ```bash
-   dapr run --app-id durable-chat --dapr-grpc-port 50001 --resources-path ./components -- sleep infinity
-   ```
-
-2. Start the app pointed at that sidecar:
-
-   ```bash
-   DAPR_GRPC_ENDPOINT=localhost:50001 mvn spring-boot:run
-   ```
-
-3. Fire a request, then **kill the app JVM** (`kill -9 <pid>` / Ctrl-C the `spring-boot:run`)
-   while or right after it processes. The workflow keeps living in the sidecar.
-
-4. Restart the app (step 2 again) and re-issue the **same** request:
-
-   ```bash
-   curl -s -X POST "http://localhost:8080/chat?message=Book%20me%20a%20flight%20to%20Oslo&conversationId=trip-2"
-   ```
-
-   The workflow resumes from its last checkpoint; `bookings.log` contains the Oslo booking
-   **exactly once**, and the completed model call is not repeated.
+1. Fire a request, then **kill the app** (Ctrl-C the `diagrid dev run`, or `kill -9` the JVM) while or
+   right after it processes.
+2. Restart with `diagrid dev run -f durable-chat-dev.yaml --approve`. The in-flight workflow resumes
+   from its last checkpoint; `bookings.log` contains the booking **exactly once**, and the completed
+   model call is not repeated.
 
 ## How it works
 
