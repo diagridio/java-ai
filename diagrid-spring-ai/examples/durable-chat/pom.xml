@@ -26,8 +26,8 @@
 
   <dependencyManagement>
     <dependencies>
-      <!-- Align Netty across Dapr's grpc-netty (4.1) and Spring Boot 4 / Ollama reactor-netty (4.2);
-           the mixed state otherwise breaks the Ollama client (MultiThreadIoEventLoopGroup is 4.2+).
+      <!-- Align Netty across Dapr's grpc-netty (4.1) and Spring Boot 4's reactor-netty (4.2); the
+           mixed state otherwise breaks the reactive client (MultiThreadIoEventLoopGroup is 4.2+).
            Declared first so it wins over the versions the other BOMs pull in. -->
       <dependency>
         <groupId>io.netty</groupId>
@@ -60,10 +60,12 @@
       <artifactId>spring-boot-starter-web</artifactId>
     </dependency>
 
-    <!-- A real Spring AI model: OllamaChatModel + the autoconfigured ChatClient.Builder. -->
+    <!-- A real Spring AI model: OpenAiChatModel + the autoconfigured ChatClient.Builder. For a
+         no-key local run, point the OpenAI SDK at a local Ollama via spring.ai.openai.base-url
+         (see application.properties). -->
     <dependency>
       <groupId>org.springframework.ai</groupId>
-      <artifactId>spring-ai-starter-model-ollama</artifactId>
+      <artifactId>spring-ai-starter-model-openai</artifactId>
     </dependency>
 
     <!-- THE ONLY THING THAT MAKES IT DURABLE: add the dependency, change no code. -->
