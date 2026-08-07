@@ -2,25 +2,33 @@
 
 [![build](https://github.com/diagridio/java-ai/actions/workflows/build.yml/badge.svg)](https://github.com/diagridio/java-ai/actions/workflows/build.yml)
 
-Durable AI integrations for Java, built on [Dapr](https://dapr.io).
+Durable AI integrations for Java, built for [Diagrid Catalyst](https://docs.diagrid.io).
 
 > **Status:** Early development. APIs and module layout are not yet stable.
 
 ## What's here
 
 The first integration is **Spring AI durability**: making Spring AI
-`ChatClient` calls durable across JVM restarts by running them as
+`ChatClient` calls durable across JVM restarts by running them on the Catalyst
+runtime, which executes them as
 [Dapr Workflows](https://docs.dapr.io/developing-applications/building-blocks/workflow/).
 
-A model call (and any tool calls it triggers) becomes a workflow whose
-progress is checkpointed by the Dapr runtime. If the process crashes
-mid-conversation, the workflow resumes from the last completed step instead
-of replaying the whole interaction or losing it.
+An LLM call (and any tool calls it triggers) becomes a workflow whose progress
+is persisted step by step. If the process crashes mid-conversation, the runtime
+detects the failure and the workflow resumes from the last completed step
+instead of replaying the whole interaction or losing it.
+
+Catalyst is the runtime this is built for, and nothing runs alongside your app.
+The library also works against a self-hosted Dapr sidecar with the workflow
+building block enabled, which is called out wherever setup differs.
 
 ## Getting started
 
-Add the Spring Boot starter — it makes every Spring-managed `ChatClient.call()`
-durable with no application-code changes:
+Two things make an existing Spring AI app durable, and neither one is a change to
+your agent's logic.
+
+**1. Add the Spring Boot starter.** It makes every Spring-managed
+`ChatClient.call()` durable with no application-code changes:
 
 ```xml
 <dependency>
@@ -30,18 +38,28 @@ durable with no application-code changes:
 </dependency>
 ```
 
+**2. Point the app at a Catalyst project.** Catalyst keeps the execution record,
+watches the run, and recovers it, so there is nothing to install next to your
+app. See the
+[Spring AI integration docs](https://docs.diagrid.io/develop/agents/spring-ai/)
+for project setup and connection details, or the
+[Spring AI quickstart](https://docs.diagrid.io/getting-started/quickstarts/ai-agents/?agentframework=spring-ai)
+to run a working agent end to end first.
+
 The other modules are optional and independent — add whichever you need (same
 `io.diagrid` group and version):
 
 | Artifact | What it adds |
 |---|---|
-| `diagrid-spring-ai-starter` | durable `ChatClient` over Dapr Workflows — the one you usually want |
-| `diagrid-spring-ai-agent-registry` | auto-publish agents to a Dapr state store for discovery |
-| `diagrid-spring-ai-memory` | durable chat memory backed by a Dapr state store |
+| `diagrid-spring-ai-starter` | durable `ChatClient`, every call run as a workflow — the one you usually want |
+| `diagrid-spring-ai-agent-registry` | auto-publish agents to a state store for discovery |
+| `diagrid-spring-ai-memory` | durable chat memory backed by a state store |
 | `diagrid-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
 
-All are on Maven Central and need a Dapr sidecar with the workflow building block
-enabled — see [Requirements](#requirements) for JDK and runtime notes.
+All are on Maven Central. On Catalyst, the state stores the registry and memory
+modules use come with the project. On self-hosted Dapr you run a sidecar with the
+workflow building block enabled and create those components yourself — see
+[Requirements](#requirements) for JDK and runtime notes.
 
 ## Wiring: build from the Spring-managed `ChatClient.Builder`
 
@@ -373,12 +391,13 @@ Configure under `diagrid.spring-ai.registry`:
 | Property | Default | Meaning |
 |---|---|---|
 | `diagrid.spring-ai.registry.enabled` | `true` | register agents at all |
-| `diagrid.spring-ai.registry.statestore` | `agent-registry` | Dapr state store component |
+| `diagrid.spring-ai.registry.statestore` | `agent-registry` | state store holding the registry — provided by a Catalyst project |
 | `diagrid.spring-ai.registry.team` | `default` | namespaces the registry keys |
-| `diagrid.spring-ai.registry.app-id` | `spring.application.name`, else `spring-ai-app` | Dapr app id recorded on each agent — **set to your Dapr app id** (see note) |
+| `diagrid.spring-ai.registry.app-id` | `spring.application.name`, else `spring-ai-app` | app id recorded on each agent — **set it explicitly** (see note) |
 
-> **`app-id` must be your actual Dapr app id** (the sidecar's `--app-id`), because tooling
-> correlates an agent to its app and workflows by it. There is no reliable way to read the Dapr app
+> **`app-id` must be the app id the runtime knows your app by** (your Catalyst App ID, or the
+> sidecar's `--app-id` on self-hosted Dapr), because tooling
+> correlates an agent to its app and workflows by it. There is no reliable way to read the app
 > id from inside the app, so it defaults to `spring.application.name` purely as a convenience for
 > apps that name the two the same — if yours differ, set `diagrid.spring-ai.registry.app-id` explicitly.
 
@@ -437,8 +456,8 @@ Configure under `diagrid.spring-ai.memory`:
 
 | Property | Default | Meaning |
 |---|---|---|
-| `diagrid.spring-ai.memory.enabled` | `true` | back chat memory with Dapr |
-| `diagrid.spring-ai.memory.statestore` | `agent-memory` | Dapr state store component (Catalyst provides this by default) |
+| `diagrid.spring-ai.memory.enabled` | `true` | persist chat memory in a state store |
+| `diagrid.spring-ai.memory.statestore` | `agent-memory` | state store holding the history — provided by a Catalyst project; create it yourself on self-hosted Dapr |
 | `diagrid.spring-ai.memory.agent-name` | `default` | key namespace (see below) |
 
 Notes:
@@ -516,7 +535,11 @@ Capabilities, caveats, and component YAML examples:
   so no work is lost. (Java 25 runs fine too, but build the library on 17/21 — some
   static-analysis tooling misbehaves on 25.)
 - Maven
-- A Dapr sidecar (workflow building block enabled)
+- **A Catalyst project** with agent infrastructure enabled. It supplies the
+  workflow runtime and the state stores the optional modules use, and nothing
+  runs alongside your app. Self-hosted Dapr is also supported: a sidecar with the
+  workflow building block enabled, plus your own components for the registry and
+  memory state stores.
 
 ## License
 
