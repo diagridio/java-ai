@@ -1,2 +1,3 @@
 io.diagrid.springai.durable.boot.DiagridSpringAiAutoConfiguration
 io.diagrid.springai.durable.boot.DurableObservabilityAutoConfiguration
+io.diagrid.springai.registry.boot.AgentRegistryAutoConfiguration

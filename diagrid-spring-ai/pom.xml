@@ -6,7 +6,7 @@
 
   <groupId>io.diagrid</groupId>
   <artifactId>diagrid-spring-ai-parent</artifactId>
-  <version>0.1.0-SNAPSHOT</version>
+  <version>0.2.0-SNAPSHOT</version>
   <packaging>pom</packaging>
 
   <name>diagrid-spring-ai</name>
@@ -72,7 +72,6 @@
   <modules>
     <module>diagrid-spring-ai-core</module>
     <module>diagrid-spring-ai-starter</module>
-    <module>diagrid-spring-ai-agent-registry</module>
     <module>diagrid-spring-ai-memory</module>
     <module>diagrid-spring-ai-conversation</module>
   </modules>

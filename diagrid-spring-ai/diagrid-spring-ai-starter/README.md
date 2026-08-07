@@ -132,7 +132,7 @@ record yourself at startup (pass `durable` explicitly, since there's no call cha
 registrar.register(factory.buildThin("bookingAgent", true));
 ```
 
-Requires the `diagrid-spring-ai-agent-registry` module on the classpath.
+The `AgentRegistrar` and `AgentRecordFactory` beans are part of the starter — no separate dependency needed.
 
 ## Gotchas
 

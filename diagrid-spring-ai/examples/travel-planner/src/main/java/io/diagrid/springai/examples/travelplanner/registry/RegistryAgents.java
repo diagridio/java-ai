@@ -10,7 +10,7 @@ import org.springframework.context.annotation.Configuration;
  *
  * <p>Unlike the other agents in this module — which build their {@link ChatClient} inline inside a
  * {@code @Component} and are therefore invisible to the agent registry — each ChatClient here is a
- * Spring {@code @Bean}, which the {@code diagrid-spring-ai-agent-registry} discovers. Registration is
+ * Spring {@code @Bean}, which the {@code diagrid-spring-ai-starter}'s agent registry discovers. Registration is
  * two-phase: at startup a thin record (name, app id, resolved model) is written for every ChatClient
  * bean, so the agents appear immediately; the first call then enriches the record with the live
  * system prompt and advertised tools. The bean <em>name</em> ({@code packingAssistant} /
