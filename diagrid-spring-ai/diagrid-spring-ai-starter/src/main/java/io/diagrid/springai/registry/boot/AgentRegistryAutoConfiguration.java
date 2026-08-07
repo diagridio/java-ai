@@ -82,8 +82,8 @@ public class AgentRegistryAutoConfiguration {
     }
     String fallback = applicationName != null && !applicationName.isBlank() ? applicationName : DEFAULT_APP_ID;
     LOG.warn("diagrid.spring-ai.registry.app-id is not set; recording agents under app id '{}'. Set it to "
-        + "your Dapr app id (the sidecar's --app-id) if that differs — tooling correlates agents to "
-        + "their app and workflows by it.", fallback);
+        + "this app's App ID if that differs — tooling correlates agents to their app and workflows by it.",
+        fallback);
     return fallback;
   }
 
