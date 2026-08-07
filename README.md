@@ -395,8 +395,8 @@ Configure under `diagrid.spring-ai.registry`:
 | `diagrid.spring-ai.registry.team` | `default` | namespaces the registry keys |
 | `diagrid.spring-ai.registry.app-id` | `spring.application.name`, else `spring-ai-app` | app id recorded on each agent — **set it explicitly** (see note) |
 
-> **`app-id` must be the app id the runtime knows your app by** (your Catalyst App ID, or the
-> sidecar's `--app-id` on self-hosted Dapr), because tooling
+> **`app-id` must match your workload's ID** (in Catalyst, the ID the workload runs under, which
+> the CLI sets with `--app-id`; on self-hosted Dapr, the sidecar's `--app-id`), because tooling
 > correlates an agent to its app and workflows by it. There is no reliable way to read the app
 > id from inside the app, so it defaults to `spring.application.name` purely as a convenience for
 > apps that name the two the same — if yours differ, set `diagrid.spring-ai.registry.app-id` explicitly.
@@ -535,7 +535,8 @@ Capabilities, caveats, and component YAML examples:
   so no work is lost. (Java 25 runs fine too, but build the library on 17/21 — some
   static-analysis tooling misbehaves on 25.)
 - Maven
-- **A Catalyst project** with agent infrastructure enabled. It supplies the
+- **A Catalyst project** with managed workflows enabled (`diagrid project create
+  … --enable-managed-workflow`). It supplies the
   workflow runtime and the state stores the optional modules use, and nothing
   runs alongside your app. Self-hosted Dapr is also supported: a sidecar with the
   workflow building block enabled, plus your own components for the registry and
