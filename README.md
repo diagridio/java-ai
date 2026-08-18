@@ -34,7 +34,7 @@ your agent's logic.
 <dependency>
   <groupId>io.diagrid</groupId>
   <artifactId>diagrid-spring-ai-starter</artifactId>
-  <version>0.1.0</version>
+  <version>0.2.0</version>
 </dependency>
 ```
 
@@ -55,9 +55,10 @@ The other modules are optional and independent — add whichever you need (same
 | `diagrid-spring-ai-memory` | durable chat memory backed by a state store |
 | `diagrid-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
 
-All are on Maven Central. On Catalyst, the state stores the registry and memory
-modules use come with the project. On self-hosted Dapr you run a sidecar with the
-workflow building block enabled and create those components yourself — see
+All are on Maven Central under the `io.diagrid` group, at the version in
+[`diagrid-spring-ai/pom.xml`](diagrid-spring-ai/pom.xml). On Catalyst, the state stores the
+registry and memory modules use come with the project. On self-hosted Dapr you run a sidecar
+with the workflow building block enabled and create those components yourself — see
 [Requirements](#requirements) for JDK and runtime notes.
 
 ## Wiring: build from the Spring-managed `ChatClient.Builder`
