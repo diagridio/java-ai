@@ -34,20 +34,9 @@ your agent's logic.
 <dependency>
   <groupId>io.diagrid</groupId>
   <artifactId>diagrid-spring-ai-starter</artifactId>
-  <version>0.3.0-SNAPSHOT</version>
+  <version>0.2.0</version>
 </dependency>
 ```
-
-> **Not yet on Maven Central.** The `io.diagrid` artifacts are unreleased, so until the
-> first publish you need to build and install them locally:
->
-> ```bash
-> git clone https://github.com/diagridio/java-ai.git
-> cd java-ai/diagrid-spring-ai && mvn -q install -DskipTests
-> ```
->
-> That puts `0.3.0-SNAPSHOT` in your local `~/.m2` repository, which is what the
-> dependency above resolves against.
 
 **2. Point the app at a Catalyst project.** Catalyst keeps the execution record,
 watches the run, and recovers it, so there is nothing to install next to your
@@ -66,10 +55,11 @@ The other modules are optional and independent — add whichever you need (same
 | `diagrid-spring-ai-memory` | durable chat memory backed by a state store |
 | `diagrid-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
 
-All three are built by the same `mvn install` above and share the `io.diagrid` group and
-version. On Catalyst, the state stores the registry and memory modules use come with the
-project. On self-hosted Dapr you run a sidecar with the workflow building block enabled and
-create those components yourself — see [Requirements](#requirements) for JDK and runtime notes.
+All are on Maven Central under the `io.diagrid` group, at the version in
+[`diagrid-spring-ai/pom.xml`](diagrid-spring-ai/pom.xml). On Catalyst, the state stores the
+registry and memory modules use come with the project. On self-hosted Dapr you run a sidecar
+with the workflow building block enabled and create those components yourself — see
+[Requirements](#requirements) for JDK and runtime notes.
 
 ## Wiring: build from the Spring-managed `ChatClient.Builder`
 
