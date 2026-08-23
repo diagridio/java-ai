@@ -55,10 +55,13 @@ The other modules are optional and independent — add whichever you need (same
 | `diagrid-spring-ai-memory` | durable chat memory backed by a state store |
 | `diagrid-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
 
-All are on Maven Central under the `io.diagrid` group, at the version in
-[`diagrid-spring-ai/pom.xml`](diagrid-spring-ai/pom.xml). On Catalyst, the state stores the
-registry and memory modules use come with the project. On self-hosted Dapr you run a sidecar
-with the workflow building block enabled and create those components yourself — see
+All are on Maven Central under the `io.diagrid` group, at the latest release **0.2.0** (`main`
+develops an unpublished `-SNAPSHOT`, so don't take the version from
+[`diagrid-spring-ai/pom.xml`](diagrid-spring-ai/pom.xml)). On Catalyst, check that the state
+stores the registry and memory modules expect actually exist in your project
+(`diagrid component list`) — the `agent-*` components are provisioned for some projects and not
+others, and you can point the modules at any store that does exist. On self-hosted Dapr you run a
+sidecar with the workflow building block enabled and create those components yourself — see
 [Requirements](#requirements) for JDK and runtime notes.
 
 ## Wiring: build from the Spring-managed `ChatClient.Builder`
@@ -79,9 +82,14 @@ decides whether it's durable:
     }
   }
   ```
-- ❌ **`ChatClient.builder(chatModel)`** builds a *fresh, unmanaged* builder — the
-  customizer never runs, so the client is **silently not durable**. Same for any
-  client you build straight from an injected `ChatModel`.
+- ❌ **`ChatClient.builder(chatModel)` held as a field inside a component** builds a
+  *fresh, unmanaged* builder — the customizer never runs, so that client is
+  **silently not durable**. Same for any client you build straight from an injected
+  `ChatModel` and keep to yourself.
+  (Exception worth knowing: if you expose the result as a `ChatClient` **bean**, the
+  starter's bean post-processor attaches a per-agent durable advisor to it regardless of
+  which builder produced it — see the per-agent note below. It is the *non-bean*
+  statically built client that loses durability.)
 
 **Multiple clients in one component** (e.g. a reflection agent with generate +
 critique clients): inject the managed builder and `clone()` it per client — each
@@ -396,7 +404,8 @@ Configure under `diagrid.spring-ai.registry`:
 | `diagrid.spring-ai.registry.app-id` | `spring.application.name`, else `spring-ai-app` | app id recorded on each agent — **set it explicitly** (see note) |
 
 > **`app-id` must match your workload's ID** (in Catalyst, the ID the workload runs under, which
-> the CLI sets with `--app-id`; on self-hosted Dapr, the sidecar's `--app-id`), because tooling
+> the CLI sets with `-a/--id` — `--app-id` is deprecated; on self-hosted Dapr, the sidecar's
+> `--app-id`), because tooling
 > correlates an agent to its app and workflows by it. There is no reliable way to read the app
 > id from inside the app, so it defaults to `spring.application.name` purely as a convenience for
 > apps that name the two the same — if yours differ, set `diagrid.spring-ai.registry.app-id` explicitly.
@@ -537,8 +546,11 @@ Capabilities, caveats, and component YAML examples:
 - Maven
 - **A Catalyst project** with managed workflows enabled (`diagrid project create
   … --enable-managed-workflow`). It supplies the
-  workflow runtime and the state stores the optional modules use, and nothing
-  runs alongside your app. Self-hosted Dapr is also supported: a sidecar with the
+  workflow runtime, and nothing runs alongside your app. The optional modules also need
+  state stores: verify with `diagrid component list --project <p>` which ones your project
+  actually has — the `agent-*` components are not provisioned uniformly — and set
+  `diagrid.spring-ai.registry.statestore` / `diagrid.spring-ai.memory.statestore` to stores
+  that exist. Self-hosted Dapr is also supported: a sidecar with the
   workflow building block enabled, plus your own components for the registry and
   memory state stores.
 

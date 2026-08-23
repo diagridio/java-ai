@@ -3,8 +3,9 @@
         "https://checkstyle.org/dtds/configuration_1_3.dtd">
 
 <!--
-    Sun/Oracle coding conventions with 100-character line length.
-    Based on sun_checks.xml with project-specific overrides.
+    Sun/Oracle coding conventions with a 120-character line length (see the LineLength
+    module below — the authoritative value). Based on sun_checks.xml with project-specific
+    overrides. Applied to src/main/java only; test sources are not analysed.
 -->
 <module name="Checker">
     <property name="charset" value="UTF-8"/>

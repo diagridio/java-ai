@@ -4,15 +4,17 @@ Thanks for your interest in contributing to the Diagrid Java AI integrations.
 
 ## Prerequisites
 
-- **JDK 17** — the library targets Java 17 and its static-analysis tooling is pinned to run on 17, so build with 17. (With [SDKMAN!](https://sdkman.io/): `sdk use java 17.0.11-tem`.)
-- **JDK 21** — recommended for the example apps (they target Java 21) and as the app runtime (virtual threads).
+- **JDK 17 or 21** — the library targets Java 17, and CI builds and runs the full static-analysis suite on both, so either works. (With [SDKMAN!](https://sdkman.io/): `sdk use java 17.0.11-tem`.)
+- **JDK 21** — required to build `examples/travel-planner` (it sets `java.version=21`) and recommended as the app runtime (virtual threads).
 - **Maven 3.9+** — no Maven wrapper is vendored; use your own `mvn`.
 - **Docker** — only for the integration-test lane (a Dapr sidecar runs via Testcontainers).
 - A local **[Ollama](https://ollama.ai/)** serving `llama3.1:8b` — only for the crash-recovery integration test.
 
 ## Project layout
 
-The Maven reactor lives under [`diagrid-spring-ai/`](diagrid-spring-ai) with five published modules — `core`, `starter`, `agent-registry`, `memory`, `conversation` — plus standalone example apps under [`diagrid-spring-ai/examples/`](diagrid-spring-ai/examples) that are **not** part of the reactor.
+The Maven reactor lives under [`diagrid-spring-ai/`](diagrid-spring-ai): the parent POM plus four published jar modules — `core`, `starter`, `memory`, `conversation`. (`agent-registry` was a module of its own until 0.2.0, when it was merged into `starter`.) Standalone example apps live under [`diagrid-spring-ai/examples/`](diagrid-spring-ai/examples) and are **not** part of the reactor.
+
+For the sharp edges — the static-analysis gates, the wiring rule that decides whether a `ChatClient` is durable, and the Catalyst components you cannot assume exist — see [`AGENTS.md`](AGENTS.md).
 
 ## Build and test
 
@@ -43,7 +45,7 @@ Without Ollama the test skips itself. It is not part of the default build or of 
 
 ## Static analysis
 
-Checkstyle runs at `validate`, SpotBugs and PMD at `verify`; their configuration lives at the reactor root (`checkstyle.xml`, `spotbugs-exclude.xml`, `pmd-rules.xml`). The build fails on violations, so keep it clean. Build on **JDK 17** — some static-analysis tooling misbehaves on newer JDKs.
+Checkstyle runs at `validate`, SpotBugs and PMD at `verify`; their configuration lives at the reactor root (`checkstyle.xml`, `spotbugs-exclude.xml`, `pmd-rules.xml`) and all four modules inherit them. The build fails on violations, so keep it clean. Test sources are excluded — only `src/main/java` is analysed. Build on **JDK 17 or 21** (CI gates both); JDK 25 is known to upset the analysis plugins.
 
 ## Pull requests
 

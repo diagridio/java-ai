@@ -101,8 +101,11 @@
       </plugins>
     </pluginManagement>
 
-    <!-- Static analysis, inherited by the code modules (core, starter). Config files live at the
-         multi-module root so every module resolves the same absolute path. Runs on JDK 17. -->
+    <!-- Static analysis, inherited by ALL four library modules (core, starter, memory,
+         conversation). Config files live at the multi-module root so every module resolves the same
+         absolute path — which means Maven must be invoked from this directory (there is no .mvn/ to
+         anchor maven.multiModuleProjectDirectory), so select a module with -pl rather than cd-ing
+         into it. Runs on JDK 17 and 21; both are gated by CI. -->
     <plugins>
       <!-- Bundle the repo LICENSE into every module jar's META-INF, so the BSL text travels with each
            published artifact ("conspicuously display this License on each copy"). LICENSE.md lives at

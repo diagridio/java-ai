@@ -37,9 +37,10 @@ jobs:
           cache: maven
 
       # `install` (not just `verify`) so the example apps below can resolve the freshly built
-      # 0.2.0-SNAPSHOT artifacts from the local repo: the examples are standalone apps (not reactor
+      # -SNAPSHOT artifacts from the local repo: the examples are standalone apps (not reactor
       # modules) and the SNAPSHOTs are not published anywhere. `install` runs the same unit tests and
-      # static analysis as `verify`, then installs.
+      # static analysis as `verify`, then installs. (Version-agnostic on purpose — the reactor
+      # version moves with every post-release bump.)
       - name: Build, test, static analysis
         working-directory: diagrid-spring-ai
         run: mvn -B clean install
