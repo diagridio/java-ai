@@ -14,7 +14,11 @@ An "agent" is a `ChatClient`. How you declare it decides (a) whether it's durabl
 workflow name.
 
 **Always build from the injected `ChatClient.Builder`.** `ChatClient.builder(chatModel)` is a static
-factory that bypasses Spring AI's customizers, so that client is **not durable** (silently).
+factory that bypasses Spring AI's customizers, so a client built that way and kept as a field is
+**not durable** (silently). A `ChatClient` **bean** is the exception: the starter's bean
+post-processor attaches a per-agent durable advisor to every `ChatClient` bean whatever builder
+produced it. So "build from the managed builder" and "expose it as a bean" are two independent
+ways to be durable — the case that silently is not is a statically built client that is neither.
 
 ### Two shapes
 

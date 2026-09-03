@@ -13,9 +13,12 @@
     <!--
         VA_FORMAT_STRING_USES_NEWLINE in examples: JSON templates
         intentionally use \n for JSON formatting, not platform newlines.
+        (The examples are standalone apps, not reactor modules, so SpotBugs
+        does not currently reach them; the package pattern is kept correct
+        for the day they are pulled in.)
     -->
     <Match>
         <Bug pattern="VA_FORMAT_STRING_USES_NEWLINE"/>
-        <Class name="~io\.dapr\.agents\.examples\..*"/>
+        <Class name="~io\.diagrid\.springai\.examples\..*"/>
     </Match>
 </FindBugsFilter>
