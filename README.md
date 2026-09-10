@@ -385,7 +385,11 @@ Each `ChatClient` **bean** is registered in two steps: a **thin record**
 immediately, and on its **first call** the record is **enriched** with the live
 system prompt and the tools actually advertised. Capturing the prompt/tools from
 a real call (rather than guessing at startup) keeps the record accurate without
-reflecting into Spring AI internals. The record uses the canonical `dapr-agents`
+reflecting into Spring AI internals. A restart re-runs the thin write, but it
+carries the authored fields (`system_prompt`, `instructions`, `role`, `goal`)
+over from the stored record, so a prompt an earlier call recorded is not erased;
+everything else — timestamp, model, tools, workflow name — is refreshed from the
+new record. The record uses the canonical `dapr-agents`
 format — a per-agent key `agents:{team}:{name}` plus a team index
 `agents:{team}:_index`. The `type` is `DurableAgent` when the agent runs under
 the durability layer (the durable ChatClient advisor is on its chain), otherwise
@@ -449,6 +453,14 @@ annotations, no stack inspection), and it has limits worth knowing:
   (`.defaultTools(...)`) tools appear only after it is used. A durable agent's
   global `@Tool` beans, which it advertises to every call, are listed from startup
   (they're known then); a request-scoped tool wins over a same-named global.
+- **An edited system prompt stays stale until the agent's next call.** Because the
+  startup write preserves the stored prompt rather than re-reading it, changing
+  `defaultSystem(...)` and restarting keeps showing the previous prompt. The next
+  call overwrites it. This is the trade for not reading `ChatClient` internals at
+  startup: a restart cannot lose the prompt, but it cannot refresh it either.
+- **A resumed workflow does not re-register.** Recovery after a crash runs on the
+  workflow worker, with no `ChatClient` call, so nothing enriches the record from
+  there.
 - **Only `.call()` is covered**, not `.stream()`.
 - A registry write never breaks a call: failures are logged and swallowed.
 
