@@ -133,8 +133,12 @@ written only for `ChatClient` beans. To make the agent appear before its first c
 record yourself at startup (pass `durable` explicitly, since there's no call chain to infer it from):
 
 ```java
-registrar.register(factory.buildThin("bookingAgent", true));
+registrar.registerPreservingAuthored(factory.buildThin("bookingAgent", true));
 ```
+
+Use `registerPreservingAuthored` rather than `register` for a startup write: the thin record has no
+system prompt, and `register` overwrites unconditionally, so on a restart it would erase the prompt
+the previous run's first call recorded.
 
 The `AgentRegistrar` and `AgentRecordFactory` beans are part of the starter — no separate dependency needed.
 
