@@ -16,6 +16,11 @@ import org.springframework.context.ApplicationContext;
  * singletons exist, so agents appear in the registry at startup — before any call. The first call
  * later enriches the record with the live system prompt and advertised tools.
  *
+ * <p>The thin write preserves the authored fields of a record already in the store, so restarting an
+ * app whose agent had already been called does not erase the system prompt that call recorded. The
+ * prompt is only re-read from a live call, so an edited prompt stays stale in the registry until the
+ * agent's next call.
+ *
  * <p>Best-effort: if the Dapr sidecar is not yet reachable at startup the thin write fails quietly
  * (logged), and the first-call enrichment becomes the effective registration.
  */
@@ -45,7 +50,7 @@ public final class AgentRegistryInitializer implements SmartInitializingSingleto
     Map<String, ChatClient> clients = context.getBeansOfType(ChatClient.class);
     LOG.info("Eagerly registering {} ChatClient agent(s) (durable={})", clients.size(), durable);
     for (String beanName : clients.keySet()) {
-      registrar.register(factory.buildThin(beanName, durable));
+      registrar.registerPreservingAuthored(factory.buildThin(beanName, durable));
     }
   }
 
