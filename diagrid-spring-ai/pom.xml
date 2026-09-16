@@ -14,7 +14,7 @@
   <url>https://github.com/diagridio/java-ai</url>
 
   <!-- Maven Central requires license, developer, and SCM metadata on every published artifact. These
-       are declared once here and inherited by the five library modules. -->
+       are declared once here and inherited by the six library modules. -->
   <licenses>
     <license>
       <name>Business Source License 1.1</name>
@@ -48,6 +48,11 @@
     <!-- Jackson 2 = the version durabletask's DataConverter serializes activity payloads with.
          (Spring AI 2.0 itself uses Jackson 3 under tools.jackson; the two coexist on the classpath.) -->
     <jackson2.version>2.22.1</jackson2.version>
+    <!-- JOSE/JWT for diagrid-ai-identity. Not covered by any of the three imported BOMs — Spring Boot
+         manages it only when Spring Security's OAuth2 resource-server support is on the classpath, and
+         that module is deliberately Spring-free — so the version is pinned here rather than in the
+         module POM, keeping every version declaration in one file. -->
+    <nimbus-jose-jwt.version>10.9.1</nimbus-jose-jwt.version>
     <!-- Tags excluded from the default (Surefire) unit run: the live-service `probe` classes and the
          crash-recovery `integration` IT. The IT has its own lane — run it with `-Pintegration` (see the
          profile below). To run a `probe`, name it explicitly and clear this property, e.g.
@@ -74,6 +79,10 @@
     <module>diagrid-spring-ai-starter</module>
     <module>diagrid-spring-ai-memory</module>
     <module>diagrid-spring-ai-conversation</module>
+    <!-- diagrid-ai-identity is the one module here with no Spring on its classpath: any JVM app can
+         verify Diagrid user tokens with it. diagrid-spring-ai-identity is its servlet adapter. -->
+    <module>diagrid-ai-identity</module>
+    <module>diagrid-spring-ai-identity</module>
   </modules>
 
   <build>
@@ -101,11 +110,11 @@
       </plugins>
     </pluginManagement>
 
-    <!-- Static analysis, inherited by ALL four library modules (core, starter, memory,
-         conversation). Config files live at the multi-module root so every module resolves the same
-         absolute path — which means Maven must be invoked from this directory (there is no .mvn/ to
-         anchor maven.multiModuleProjectDirectory), so select a module with -pl rather than cd-ing
-         into it. Runs on JDK 17 and 21; both are gated by CI. -->
+    <!-- Static analysis, inherited by ALL six library modules (core, starter, memory,
+         conversation, ai-identity, spring-ai-identity). Config files live at the multi-module root so
+         every module resolves the same absolute path — which means Maven must be invoked from this
+         directory (there is no .mvn/ to anchor maven.multiModuleProjectDirectory), so select a module
+         with -pl rather than cd-ing into it. Runs on JDK 17 and 21; both are gated by CI. -->
     <plugins>
       <!-- Bundle the repo LICENSE into every module jar's META-INF, so the BSL text travels with each
            published artifact ("conspicuously display this License on each copy"). LICENSE.md lives at
@@ -272,7 +281,7 @@
       </build>
     </profile>
 
-    <!-- `-Prelease`: sign and publish the five library modules (+ this parent POM) to Maven Central via
+    <!-- `-Prelease`: sign and publish the six library modules (+ this parent POM) to Maven Central via
          the Sonatype Central Portal. Off by default so the normal build stays fast and needs no GPG key.
          The examples/ apps are standalone (not reactor modules) and are never published.
 

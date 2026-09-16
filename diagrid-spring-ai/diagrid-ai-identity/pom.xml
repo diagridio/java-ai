@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.diagrid</groupId>
+    <artifactId>diagrid-spring-ai-parent</artifactId>
+    <version>0.3.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>diagrid-ai-identity</artifactId>
+  <name>diagrid-ai-identity</name>
+  <description>App-side verification of Diagrid-issued user tokens, with no framework dependency</description>
+
+  <!-- Deliberately Spring-free. This module is what a Quarkus, Micronaut, Helidon or bare-servlet app
+       depends on, so a framework adapter (diagrid-spring-ai-identity) can be thin and the verification
+       logic is shared rather than reimplemented. Adding a Spring dependency here defeats the split.
+       Everything outside the JOSE work — HTTP for sidecar discovery, JSON parsing, logging, the
+       request-scoped token holder — is done with the JDK, so `nimbus-jose-jwt` stays the only
+       compile dependency. -->
+  <dependencies>
+    <!-- JWKS retrieval/caching (JWKSourceBuilder) and JWT signature verification
+         (ConfigurableJWTProcessor). Also supplies the JSON parser used for sidecar
+         metadata discovery, so no separate JSON library is needed. -->
+    <dependency>
+      <groupId>com.nimbusds</groupId>
+      <artifactId>nimbus-jose-jwt</artifactId>
+      <version>${nimbus-jose-jwt.version}</version>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

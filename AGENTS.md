@@ -20,8 +20,8 @@ The git root holds only docs and `.github/`. The Maven reactor is `diagrid-sprin
   modules: `-core`, `-starter`, `-memory`, `-conversation`. **`agent-registry` is not a
   module** — it was merged into the starter at 0.2.0 (#43). Anything naming it as a module
   or a dependency is stale.
-- `examples/travel-planner` and `examples/durable-chat` are **standalone apps, not reactor
-  modules**: parented to `spring-boot-starter-parent`, and they pin the library version as
+- `examples/travel-planner`, `examples/durable-chat` and `examples/identity` are **standalone
+  apps, not reactor modules**: parented to `spring-boot-starter-parent`, and they pin the library version as
   a literal string (`0.3.0-SNAPSHOT` today). They only resolve after `mvn install` at the
   reactor root, and a version bump has to be applied to them by hand — `versions:set`
   does not reach them.
@@ -47,6 +47,7 @@ cd diagrid-spring-ai
 mvn -B clean install                                        # what CI runs, on JDK 17 AND 21
 mvn -B -f examples/travel-planner/pom.xml clean package -DskipTests   # JDK 21 leg only
 mvn -B -f examples/durable-chat/pom.xml  clean package -DskipTests   # JDK 21 leg only
+mvn -B -f examples/identity/pom.xml      clean package -DskipTests   # JDK 21 leg only
 ```
 
 - `install`, not `verify`, is deliberate: the examples are not reactor modules, so they

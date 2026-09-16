@@ -54,6 +54,7 @@ jobs:
         run: |
           mvn -B -f examples/travel-planner/pom.xml clean package -DskipTests
           mvn -B -f examples/durable-chat/pom.xml clean package -DskipTests
+          mvn -B -f examples/identity/pom.xml clean package -DskipTests
 
       # On failure, keep the surefire reports so test breakages are diagnosable from the run page.
       - name: Upload surefire reports

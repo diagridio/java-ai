@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <!-- Standalone example app (NOT a module of the library build): consumes the installed identity
+       modules. -->
+  <parent>
+    <groupId>org.springframework.boot</groupId>
+    <artifactId>spring-boot-starter-parent</artifactId>
+    <version>4.0.5</version>
+    <relativePath/>
+  </parent>
+
+  <groupId>io.diagrid.springai.examples</groupId>
+  <artifactId>identity</artifactId>
+  <version>0.3.0-SNAPSHOT</version>
+  <name>identity</name>
+  <description>Example: verify inbound Catalyst user tokens and propagate the caller downstream</description>
+
+  <properties>
+    <java.version>17</java.version>
+  </properties>
+
+  <dependencies>
+    <dependency>
+      <groupId>org.springframework.boot</groupId>
+      <artifactId>spring-boot-starter-web</artifactId>
+    </dependency>
+
+    <!-- The servlet filter. Brings diagrid-ai-identity (verification, discovery, outbound
+         propagation) transitively; no other identity dependency is needed. -->
+    <dependency>
+      <groupId>io.diagrid</groupId>
+      <artifactId>diagrid-spring-ai-identity</artifactId>
+      <version>0.3.0-SNAPSHOT</version>
+    </dependency>
+  </dependencies>
+
+  <build>
+    <plugins>
+      <plugin>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-maven-plugin</artifactId>
+      </plugin>
+    </plugins>
+  </build>
+</project>
