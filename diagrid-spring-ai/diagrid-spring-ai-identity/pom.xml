@@ -1,0 +1,62 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+  <modelVersion>4.0.0</modelVersion>
+
+  <parent>
+    <groupId>io.diagrid</groupId>
+    <artifactId>diagrid-spring-ai-parent</artifactId>
+    <version>0.3.0-SNAPSHOT</version>
+  </parent>
+
+  <artifactId>diagrid-spring-ai-identity</artifactId>
+  <name>diagrid-spring-ai-identity</name>
+  <description>Spring servlet filter that verifies Diagrid-issued user tokens on inbound requests</description>
+
+  <!-- A thin adapter: it reads the header, delegates to diagrid-ai-identity, and writes the HTTP
+       response. Deliberately NOT built on Spring Security — the error bodies and status codes are a
+       cross-SDK contract, and a security filter chain would reshape them. -->
+  <dependencies>
+    <!-- All verification, discovery and outbound-token logic lives here. -->
+    <dependency>
+      <groupId>io.diagrid</groupId>
+      <artifactId>diagrid-ai-identity</artifactId>
+      <version>${project.version}</version>
+    </dependency>
+
+    <!-- OncePerRequestFilter -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-web</artifactId>
+    </dependency>
+
+    <!-- GenericFilterBean, which OncePerRequestFilter extends, implements EnvironmentAware from
+         spring-context; spring-web alone does not put it on the compile classpath. Every Spring app
+         already has it at runtime. -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-context</artifactId>
+    </dependency>
+
+    <!-- HttpServletRequest / HttpServletResponse; provided by the servlet container at runtime -->
+    <dependency>
+      <groupId>jakarta.servlet</groupId>
+      <artifactId>jakarta.servlet-api</artifactId>
+      <scope>provided</scope>
+    </dependency>
+
+    <dependency>
+      <groupId>org.junit.jupiter</groupId>
+      <artifactId>junit-jupiter</artifactId>
+      <scope>test</scope>
+    </dependency>
+
+    <!-- MockHttpServletRequest / MockHttpServletResponse for the filter tests -->
+    <dependency>
+      <groupId>org.springframework</groupId>
+      <artifactId>spring-test</artifactId>
+      <scope>test</scope>
+    </dependency>
+  </dependencies>
+</project>

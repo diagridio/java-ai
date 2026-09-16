@@ -521,12 +521,196 @@ registers unless `spring.ai.model.chat` selects another provider (set it to
 Capabilities, caveats, and component YAML examples:
 [module README](diagrid-spring-ai/diagrid-spring-ai-conversation/README.md).
 
+## Inbound identity
+
+Catalyst forwards the end user's identity to your agent as a signed JWT in the
+`X-Diagrid-User-Token` header. Two modules turn that into a verified caller your
+handlers can trust, and into on-behalf-of propagation on the calls your agent
+makes next:
+
+- **`diagrid-ai-identity`** — verification, discovery and outbound propagation,
+  with **no Spring on its classpath**. Its only dependency is
+  `com.nimbusds:nimbus-jose-jwt`, so a Quarkus, Micronaut, Helidon or bare-servlet
+  app can use it as-is.
+- **`diagrid-spring-ai-identity`** — a servlet `Filter` over that module, plus one
+  `ClientHttpRequestInterceptor` for a `RestClient` an app already owns. No
+  verification logic lives here.
+
+Install the filter. Spring Boot registers any `Filter` bean automatically:
+
+```java
+@Bean
+OAuthFilter diagridOAuthFilter() {
+  return new OAuthFilter(new OAuthConfig(Set.of("agent.invoke")));
+}
+```
+
+Handlers read the verified caller with `OAuthFilter.verifiedUser(request)`. Its
+`scopes` iterate ordinally sorted — the order every Diagrid SDK uses, so a
+handler that echoes them into a response body produces the same body in every
+language. Outbound calls carry the caller's identity without any plumbing of
+their own: an app constructs the SDK's HTTP client and then makes ordinary calls
+with it:
+
+```java
+private final HttpClient http =
+    IdentityHttpClient.from(HttpClient.newBuilder(), HttpClient.Redirect.NORMAL);
+
+@PostMapping("/invoke")
+ResponseEntity<String> invoke(HttpServletRequest request) throws Exception {
+  VerifiedUser user = OAuthFilter.verifiedUser(request).orElseThrow();
+
+  HttpResponse<String> mcp =
+      http.send(HttpRequest.newBuilder(mcpUri).build(), BodyHandlers.ofString());
+
+  return ResponseEntity.ok(user.subject());
+}
+```
+
+`verifiedUser` is empty when no caller was verified — a route the policy admits
+unauthenticated, or a request the filter never ran on — so there is no cast out
+of the servlet's attribute bag. The raw key stays public as
+`OAuthFilter.USER_ATTRIBUTE` (`diagrid.user`) for code that wants it. A handler
+checking one scope per route can ask the caller directly:
+`user.hasScope("admin.write")`.
+
+### Outbound identity
+
+`IdentityHttpClient` hands back a plain `java.net.http.HttpClient`, not a subclass
+and not a new type, so it goes wherever one is expected — an MCP client, a
+generated API client, a Spring `JdkClientHttpRequestFactory`. It takes every
+option `HttpClient.Builder` takes; the one option it owns is redirect following,
+stated as the second argument, because it follows redirects itself in order to
+decide the identity header per hop.
+
+Four properties are worth knowing, because they are what an app would otherwise
+have to get right by hand:
+
+- **The caller is read when you send, not when you build.** That is what makes
+  one long-lived, shared client safe: concurrent requests each carry their own
+  caller. A credential captured at construction would send whichever user
+  happened to be current when the client was built.
+- **The header is cleared first.** A request never carries an identity the
+  current context does not hold, whatever set it.
+- **The origin is pinned.** The caller's credential goes only to the origin the
+  app addressed; a redirect to another origin is followed with the header
+  dropped, since otherwise a redirect from the callee would hand the caller's
+  on-behalf-of credential to whatever host the redirect names. The one exception
+  is a same-host upgrade from `http` on port 80 to `https` on port 443.
+- **No inbound caller is not an error.** A cron trigger or a pub/sub delivery has
+  no caller, so the call goes out with no identity header at all rather than an
+  empty one — a downstream service can tell "no user" from "a user with a blank
+  credential" — and the omission is logged at debug.
+
+For a client an app already owns and cannot replace, install the behaviour
+instead of the client: `IdentityHttpClient.wrap(existing)` for a JDK
+`HttpClient`, or `new IdentityClientHttpRequestInterceptor()` on a `RestClient` or
+`RestTemplate` — registered last, so identity wins over an app interceptor that
+set the same header. Neither path can enforce the origin
+guard on its own: the JDK and Spring both follow redirects below the point either
+one intercepts at. `wrap` warns when the client it is given follows redirects,
+and the interceptor's Javadoc says how to get the guard back (a request factory
+built over `IdentityHttpClient`).
+
+The token is held in a `ThreadLocal`, so it is visible on the thread serving the
+request and on the async dispatch that resumes it. It is **not** visible on a
+thread your handler hands work to itself — an executor, a reactive scheduler, the
+threads a `ChatClient.stream()` `Flux` runs on. Carry it across explicitly there:
+read `IdentityContext.currentUserToken()` while still on the request thread and
+call `setCurrentToken` on the other side. A missed hand-off is silent — the
+outbound call simply goes out with no identity header.
+
+Verification itself sits behind the `TokenVerifier` interface, which
+`JwksVerifier` implements against a JWKS endpoint. The filter builds one with
+`JwksVerifier.build(config)`; pass your own to
+`new OAuthFilter(config, verifier)` when key material arrives some other way.
+
+### What the filter enforces
+
+The issuer, audience and JWKS endpoint are discovered at first use, so the same
+image runs in any project or region unconfigured. There are four sources, in this
+order:
+
+1. explicit `OAuthConfig` values — `issuer`, `audience`, `jwksUri`;
+2. a **local** sidecar's `/v1.0/metadata`, reached on `CATALYST_DAPR_HTTP_PORT`
+   or `DAPR_HTTP_PORT`;
+3. a **remote** sidecar's `/v1.0/metadata`, reached at `DAPR_HTTP_ENDPOINT` and
+   authenticated with `DAPR_API_TOKEN` when it is set;
+4. the environment — `DIAGRID_DP_SENTRY_ISSUER` / `DIAGRID_DP_SENTRY_AUDIENCE`.
+
+Local precedes remote deliberately: an app deployed beside a sidecar keeps
+answering from loopback rather than paying for a network round trip on every
+start. The JWKS endpoint follows the same shape — an explicit `jwksUri`, else the
+one a source advertised *for the issuer that was resolved*, else
+`issuer + /jwks.json`. A source advertising a different issuer than the one the
+app pinned is ignored, so a pinned issuer is never verified against a foreign
+issuer's key set.
+
+Signatures are checked against the issuer's published keys, cached for 300
+seconds; only `RS256` and `ES256` are accepted, and `exp`, `iss` and `sub` are
+required, with 120 seconds of clock skew allowed. Claims are checked in one fixed
+order — required claims, then lifetime, then `iss`, then `aud` — so a token with
+two defects at once reports the same code in every SDK. A key set the issuer
+rotates is picked up on the first token that needs it, not when the cache next
+expires.
+
+The JWKS endpoint must be `https`. Those keys are the whole root of trust, so
+anyone who can rewrite that response can mint tokens the filter accepts; a
+resolved `jwksUri` on any other scheme is refused with
+`oauth.not_configured` rather than fetched, and refused while the verifier is
+being built rather than on the first request that needs a key. Plain `http` needs no opt-in for
+loopback hosts, where there is nothing on the wire to intercept; anywhere else it
+takes `allowInsecureJwks`, and that opt-in covers plaintext `http` only, never a
+scheme outside `http`/`https`.
+
+Discovery runs on the request thread, so a failure is remembered for 30 seconds
+and answered from that memory rather than re-attempted on every request: a
+sidecar that is reachable but hung would otherwise hold a servlet thread for the
+5-second metadata timeout on each call.
+
+| `OAuthConfig` | Default | Meaning |
+|---|---|---|
+| `scopes` | empty | scopes every caller must carry; empty admits any verified caller |
+| `issuer` | discovered | expected `iss` claim |
+| `audience` | discovered | expected `aud` claim; empty means the audience is not checked |
+| `jwksUri` | discovered | endpoint publishing the issuer's signing keys |
+| `requireAuth` | `true` | reject requests with **no** user token; set `false` to let health routes share the app. It governs only the tokenless case: a token that *is* present is always verified either way, and an invalid one always refused |
+| `allowInsecureJwks` | `false` | allow a plaintext `http` JWKS endpoint on a host that is not loopback |
+
+Verification is fail-closed: anything that is not a positively verified token is
+rejected. Rejections carry `Cache-Control: no-store` and a `{"error":"..."}`
+body whose code is the same string every Diagrid SDK reports, so a client can
+branch on it whatever language served the request.
+
+| Status | Code | When |
+|---|---|---|
+| 401 | `oauth.missing_token` | no `X-Diagrid-User-Token` header |
+| 401 | `oauth.decode_error` | not a well-formed signed JWT |
+| 401 | `oauth.invalid_token` | algorithm outside the allowlist, or a required claim missing |
+| 401 | `oauth.invalid_signature` | signature does not verify |
+| 401 | `oauth.expired` | past `exp`, beyond the clock skew |
+| 401 | `oauth.invalid_issuer` | `iss` is not the expected issuer |
+| 401 | `oauth.invalid_audience` | `aud` does not contain the configured audience |
+| 403 | `oauth.missing_scope` | verified, but missing a required scope |
+| 503 | `oauth.not_configured` | no issuer could be discovered |
+| 503 | `oauth.verifier_unavailable` | key material unreachable — the credential may be fine |
+
+There is no auto-configuration and no `spring.factories` entry: the filter is
+declared as a bean, as above. Spring Security is deliberately not used — the
+status codes and error bodies are a cross-SDK contract, and a security filter
+chain would reshape both.
+
+A runnable version of all of the above — the one-bean install, the typed
+accessor and one propagated outbound call, and nothing else — is
+[`examples/identity`](diagrid-spring-ai/examples/identity).
+
 ## Roadmap
 
 - [x] `diagrid-spring-ai` — durable `ChatClient` over Dapr Workflows
 - [x] Dapr [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/) integration — Spring AI `ChatModel` backed by Dapr's Conversation building block
 - [x] Chat memory backed by a Dapr state store — durable conversation history via Spring AI's `ChatMemory`
 - [x] Agent registry backed by a Dapr state store
+- [x] Inbound identity — verified end-user callers and on-behalf-of propagation, with a Spring-free core
 - [x] Spring Boot auto-configuration / starter
 - [ ] Durable streaming (`ChatClient.stream()`) — today only `.call()` is durable
 - [ ] Workflow versioning — safely evolve the orchestrator with in-flight instances

@@ -1,0 +1,10 @@
+version: 1
+common:
+  appLogDestination: console
+apps:
+  - appID: identity
+    appDirPath: ./
+    appPort: 8080
+    # The sidecar supplies the identity coordinates the filter discovers at first use, and sets
+    # X-Diagrid-User-Token on requests it forwards.
+    command: ["mvn", "spring-boot:run"]
