@@ -64,6 +64,17 @@ class JwksVerifierTest {
     }
 
     @Test
+    @DisplayName("a token typed at+jwt, which is how dp-Sentry types the real credential")
+    void atJwtTypedToken() {
+      // Regression: Nimbus's default type verifier accepts only `JWT` or an absent `typ`, so every
+      // real Catalyst credential was rejected before key selection ran -- and reported as "no
+      // published signing key matches the token" while its key matched perfectly.
+      Map<String, Object> claims = verifier().verify(tokens.signRs256AtJwt(validClaims().build()));
+
+      assertEquals("alice@example.com", claims.get("sub"));
+    }
+
+    @Test
     @DisplayName("a token expired inside the 120s clock-skew allowance")
     void tokenExpiredWithinClockSkew() {
       String token = tokens.signRs256(validClaims().expirationTime(secondsFromNow(-60)).build());
