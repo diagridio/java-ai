@@ -61,6 +61,10 @@ class AgentRecordFactoryTest {
     assertEquals("Agent", schema.agent().type());
     assertEquals("spring-ai", schema.agent().framework());
     assertEquals("You are a weather assistant.", schema.agent().systemPrompt());
+    assertEquals(
+        List.of("You are a weather assistant."),
+        schema.agent().instructions(),
+        "the system text is recorded as instructions too, for parity with the other adapters");
 
     assertEquals("ollama", schema.llm().provider());
     assertEquals("OllamaChatModel", schema.llm().client());
@@ -79,6 +83,7 @@ class AgentRecordFactoryTest {
     assertEquals("Agent", schema.agent().type());
     assertEquals("default-model", schema.llm().model());
     assertNull(schema.agent().systemPrompt(), "thin record has no system prompt until first call");
+    assertNull(schema.agent().instructions(), "thin record has no instructions until first call");
     assertNull(schema.tools(), "thin record has no tools until first call");
     assertNull(schema.agent().metadata(), "a standard agent carries no workflow_name");
   }

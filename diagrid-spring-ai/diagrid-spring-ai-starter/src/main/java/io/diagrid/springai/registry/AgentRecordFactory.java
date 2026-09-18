@@ -85,7 +85,8 @@ public final class AgentRecordFactory {
   }
 
   /**
-   * Builds the full record from a live call, enriching it with the system prompt and advertised tools.
+   * Builds the full record from a live call, enriching it with the system prompt (recorded as both
+   * {@code system_prompt} and a single-element {@code instructions} list) and advertised tools.
    *
    * @param name    agent name (the ChatClient bean name)
    * @param request the call being intercepted
@@ -95,8 +96,13 @@ public final class AgentRecordFactory {
   public AgentMetadataSchema build(String name, ChatClientRequest request, boolean durable) {
     ChatOptions options = request.prompt().getOptions();
     Map<String, Object> extras = durable ? Map.of(WORKFLOW_NAME_KEY, workflowName(name)) : null;
+    String systemText = systemPrompt(request);
+    // The record schema carries both an ordered instruction list and a single system prompt, and the
+    // other language adapters populate both. Spring AI has one system text, so it fills both: the
+    // list is that same text as its only element.
+    List<String> instructions = systemText == null ? null : List.of(systemText);
     AgentMetadata agent = new AgentMetadata(
-        appId, type(durable), null, null, null, systemPrompt(request), FRAMEWORK, extras);
+        appId, type(durable), null, null, instructions, systemText, FRAMEWORK, extras);
     LlmMetadata llm = new LlmMetadata(llmClient, llmProvider, "chat", resolveModel(options));
     // Same advertised surface the durable path uses: global @Tool beans (durable agents only) plus
     // this call's request-scoped tools, request-scoped winning on a name collision.
