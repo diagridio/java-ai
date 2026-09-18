@@ -2,6 +2,7 @@ package io.diagrid.ai.identity;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JWSAlgorithm;
+import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSHeader;
 import com.nimbusds.jose.KeySourceException;
 import com.nimbusds.jose.crypto.MACSigner;
@@ -66,6 +67,31 @@ final class TestTokens {
 
   String signRs256(JWTClaimsSet claims) {
     return signRs256(claims, signingKey.getKeyID());
+  }
+
+  /**
+   * Signs a token typed the way dp-Sentry types the real user credential.
+   *
+   * <p>Catalyst mints it as an RFC 9068 access token, so `typ` is `at+jwt` rather than `JWT`. A
+   * verifier that only accepts `JWT` rejects every real credential before it ever looks at a key.
+   *
+   * @param claims the claims to sign
+   * @return a signed RS256 token whose `typ` header is `at+jwt`
+   */
+  String signRs256AtJwt(JWTClaimsSet claims) {
+    try {
+      SignedJWT jwt =
+          new SignedJWT(
+              new JWSHeader.Builder(JWSAlgorithm.RS256)
+                  .keyID(signingKey.getKeyID())
+                  .type(new JOSEObjectType("at+jwt"))
+                  .build(),
+              claims);
+      jwt.sign(new RSASSASigner(signingKey));
+      return jwt.serialize();
+    } catch (JOSEException e) {
+      throw new IllegalStateException(e);
+    }
   }
 
   String signRs256(JWTClaimsSet claims, String keyId) {

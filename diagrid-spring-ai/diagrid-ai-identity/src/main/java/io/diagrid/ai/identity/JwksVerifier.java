@@ -2,6 +2,7 @@ package io.diagrid.ai.identity;
 
 import com.nimbusds.jose.JOSEException;
 import com.nimbusds.jose.JOSEObject;
+import com.nimbusds.jose.JOSEObjectType;
 import com.nimbusds.jose.JWSAlgorithm;
 import com.nimbusds.jose.KeySourceException;
 import com.nimbusds.jose.jwk.JWKMatcher;
@@ -10,6 +11,7 @@ import com.nimbusds.jose.jwk.source.JWKSource;
 import com.nimbusds.jose.jwk.source.JWKSourceBuilder;
 import com.nimbusds.jose.proc.BadJOSEException;
 import com.nimbusds.jose.proc.BadJWSException;
+import com.nimbusds.jose.proc.DefaultJOSEObjectTypeVerifier;
 import com.nimbusds.jose.proc.JWSVerificationKeySelector;
 import com.nimbusds.jose.proc.SecurityContext;
 import com.nimbusds.jose.util.Base64URL;
@@ -69,6 +71,15 @@ public final class JwksVerifier implements TokenVerifier {
    * consulted, which is what closes the algorithm-confusion attack.
    */
   static final Set<JWSAlgorithm> ALLOWED_ALGORITHMS = Set.of(JWSAlgorithm.RS256, JWSAlgorithm.ES256);
+
+  /**
+   * The RFC 9068 access-token type dp-Sentry stamps on the user token.
+   *
+   * <p>Nimbus's default type verifier accepts only {@code JWT} or an absent {@code typ}, and
+   * rejects anything else before key selection runs. Without this the real Catalyst credential
+   * failed as "no published signing key matches the token" while its key matched perfectly.
+   */
+  private static final JOSEObjectType AT_JWT = new JOSEObjectType("at+jwt");
 
   private static final String MISSING_COORDINATES_MESSAGE =
       "Cannot discover identity coordinates: set issuer/jwks_uri explicitly, "
@@ -424,6 +435,9 @@ public final class JwksVerifier implements TokenVerifier {
   private static ConfigurableJWTProcessor<SecurityContext> processorFor(JWKSource<SecurityContext> source) {
     ConfigurableJWTProcessor<SecurityContext> processor = new DefaultJWTProcessor<>();
     processor.setJWSKeySelector(new JWSVerificationKeySelector<>(ALLOWED_ALGORITHMS, source));
+    // Accept `JWT`, `at+jwt` and an absent `typ`, matching what the other SDKs accept.
+    processor.setJWSTypeVerifier(
+        new DefaultJOSEObjectTypeVerifier<>(JOSEObjectType.JWT, AT_JWT, null));
     // Claims are checked in validateClaims, which can name the exact failure; the library's verifier
     // cannot. Leaving this unset would silently re-enable its default expiry check.
     processor.setJWTClaimsSetVerifier((claims, context) -> { });
