@@ -27,7 +27,7 @@ on:
         description: 'Version just published to Central (tag will be v<this>), e.g. 0.1.0'
         required: true
       next_development_version:
-        description: 'Next development version for main, e.g. 0.1.0-SNAPSHOT'
+        description: 'Next development version for main, must end in -SNAPSHOT, e.g. 0.1.0-SNAPSHOT'
         required: true
       release_commit:
         description: 'Optional commit SHA that was released. Default: head of the latest successful release run.'
@@ -48,6 +48,17 @@ jobs:
       VERSION: ${{ inputs.released_version }}
       NEXT: ${{ inputs.next_development_version }}
     steps:
+      # Typed by hand at dispatch time. A malformed suffix (e.g. -SNAPSHOP) is not a snapshot to
+      # Maven, so it would silently be resolved as a release version. Fail before anything is pushed.
+      - name: Validate the next development version
+        run: |
+          set -euo pipefail
+          if ! printf '%s' "$NEXT" | grep -Eq '^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.]+)?-SNAPSHOT$'; then
+            echo "::error::next_development_version '$NEXT' is not a valid snapshot version. Expected <major>.<minor>.<patch>[-<qualifier>]-SNAPSHOT, e.g. 0.5.0-SNAPSHOT."
+            exit 1
+          fi
+          echo "Next development version: $NEXT ✓"
+
       - name: Check out main (full history so the tag can point at the released commit)
         uses: actions/checkout@v7
         with:
