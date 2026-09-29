@@ -727,6 +727,39 @@ accessor and one propagated outbound call, and nothing else — is
 - [ ] Durable streaming (`ChatClient.stream()`) — today only `.call()` is durable
 - [ ] Workflow versioning — safely evolve the orchestrator with in-flight instances
 
+## Usage analytics
+
+The starter reports one anonymous usage event when the durable `ChatClient` auto-configuration
+activates, once per package per process. Maven Central publishes aggregate download counts only,
+so this is how Diagrid sees which package versions run on which platforms. Because it is one event
+per process, a Kubernetes deployment produces one event per replica per restart: the numbers count
+process starts, not deployments or users.
+
+**What is sent:** the package name and version, the operating system, architecture and JVM
+version, the agent framework and the installed version of its library (`framework`,
+`framework_version`), `kind=agent`, whether the process points at Catalyst or at a plain Dapr
+sidecar (`target`), and whether it runs under a CI variable (`ci`). Nothing else: no application
+data, configuration, app IDs, prompts, or hostnames. The receiving service is
+[Scarf](https://scarf.sh). It derives coarse company and location information from the request IP.
+How Scarf handles that data is described in
+[Scarf's privacy policy](https://about.scarf.sh/privacy-policy).
+
+**It never gets in the way:** the request is dispatched asynchronously on a background daemon
+thread with a one second timeout, every failure is swallowed, and the calling thread never waits.
+Blocked egress and air-gapped clusters behave normally. Nothing is written to your application's
+output; a `DEBUG` line on the `io.diagrid.springai.durable.boot.UsageAnalytics` logger records
+whether the event was sent, skipped, or failed, for operators who want to confirm an opt-out.
+
+To opt out, set any of these environment variables before starting your application:
+
+```bash
+export DO_NOT_TRACK=1
+# or
+export SCARF_NO_ANALYTICS=1
+# or
+export DIAGRID_NO_ANALYTICS=1
+```
+
 ## Requirements
 
 - **Java 17+** — the floor set by Spring AI 2.0 (via Spring Framework 7 / Spring Boot 4). The
