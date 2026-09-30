@@ -98,8 +98,14 @@ public class DiagridSpringAiAutoConfiguration {
    * only exists when the auto-configuration above activates, i.e. once per durable Spring AI
    * application — the single place every such application passes through exactly once. See
    * {@link UsageAnalytics} and the README's "Usage analytics" section, including how to opt out.
+   *
+   * <p>{@code diagrid.spring-ai.analytics.enabled=false} removes this bean, so a team that configures
+   * the starter in {@code application.yml} can switch reporting off there, per profile if it wants.
+   * The environment variables in {@link UsageAnalytics} keep working on top of it.
    */
   @Bean
+  @ConditionalOnProperty(prefix = "diagrid.spring-ai.analytics", name = "enabled", havingValue = "true",
+      matchIfMissing = true)
   public SmartInitializingSingleton daprUsageAnalyticsInitializer() {
     return () -> {
       Map<String, String> dimensions = new LinkedHashMap<>();

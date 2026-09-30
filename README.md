@@ -750,7 +750,17 @@ Blocked egress and air-gapped clusters behave normally. Nothing is written to yo
 output; a `DEBUG` line on the `io.diagrid.springai.durable.boot.UsageAnalytics` logger records
 whether the event was sent, skipped, or failed, for operators who want to confirm an opt-out.
 
-To opt out, set any of these environment variables before starting your application:
+To opt out, set the Spring property, which removes the reporting bean and works per profile:
+
+```yaml
+diagrid:
+  spring-ai:
+    analytics:
+      enabled: false
+```
+
+Or set any of these environment variables to `1`, `true`, `yes`, or `on` (case-insensitive) before
+starting your application:
 
 ```bash
 export DO_NOT_TRACK=1
@@ -759,6 +769,9 @@ export SCARF_NO_ANALYTICS=1
 # or
 export DIAGRID_NO_ANALYTICS=1
 ```
+
+Either switch alone is enough. A value of `0`, `false`, or an empty string does not opt out. The
+endpoint is fixed at build time and is not configurable.
 
 ## Requirements
 

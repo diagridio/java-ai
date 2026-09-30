@@ -41,8 +41,11 @@ import org.slf4j.LoggerFactory;
  * the executor's thread is free again; the calling thread never waits on it either way. Blocked
  * egress and air-gapped clusters are normal conditions, not faults.
  *
- * <p>Set any of {@code DO_NOT_TRACK}, {@code SCARF_NO_ANALYTICS} or {@code DIAGRID_NO_ANALYTICS}
- * to a truthy value to opt out, or leave the endpoint empty to disable reporting entirely.
+ * <p>Two switches turn it off: the Spring property {@code diagrid.spring-ai.analytics.enabled=false},
+ * which removes the reporting bean, and any of {@code DO_NOT_TRACK}, {@code SCARF_NO_ANALYTICS} or
+ * {@code DIAGRID_NO_ANALYTICS} set to {@code 1}, {@code true}, {@code yes} or {@code on}
+ * (case-insensitive). {@code 0}, {@code false} and an empty value do not opt out. The endpoint is
+ * fixed at build time: an empty endpoint is a test seam, not a deployment option.
  */
 final class UsageAnalytics {
 
@@ -50,7 +53,8 @@ final class UsageAnalytics {
 
   /**
    * Scarf event-collection route for java-ai (owner Diagrid). The route records the request and
-   * redirects nowhere. An empty endpoint disables reporting entirely.
+   * redirects nowhere. Tests pass an empty endpoint through the package-private constructor to
+   * make the reporter a no-op; there is no way to change it in a deployment.
    */
   static final String DEFAULT_ENDPOINT = "https://diagrid.gateway.scarf.sh/java-ai";
 
