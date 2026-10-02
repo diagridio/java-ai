@@ -1,11 +1,14 @@
 package io.diagrid.springai.durable.boot;
 
 import static org.junit.jupiter.api.Assertions.assertEquals;
+import static org.junit.jupiter.api.Assertions.assertFalse;
 import static org.junit.jupiter.api.Assertions.assertNotNull;
 import static org.junit.jupiter.api.Assertions.assertNull;
+import static org.junit.jupiter.api.Assertions.assertTrue;
 
 import io.dapr.workflows.WorkflowTaskOptions;
 import io.dapr.workflows.WorkflowTaskRetryPolicy;
+import io.diagrid.springai.durable.boot.DiagridSpringAiProperties.Analytics;
 import io.diagrid.springai.durable.boot.DiagridSpringAiProperties.Retry;
 import java.time.Duration;
 import org.junit.jupiter.api.Test;
@@ -16,19 +19,19 @@ class DiagridSpringAiPropertiesTest {
   void maxIterationsDefaultsWhenUnset() {
     assertEquals(
         io.diagrid.springai.durable.workflow.AgentWorkflow.DEFAULT_MAX_ITERATIONS,
-        new DiagridSpringAiProperties(null, null, null, null).maxIterations());
+        new DiagridSpringAiProperties(null, null, null, null, null).maxIterations());
   }
 
   @Test
   void completionTimeoutDefaultsToFiveMinutes() {
     assertEquals(
         Duration.ofMinutes(5),
-        new DiagridSpringAiProperties(null, null, null, null).completionTimeout());
+        new DiagridSpringAiProperties(null, null, null, null, null).completionTimeout());
   }
 
   @Test
   void retryDefaultsAreAppliedWhenUnset() {
-    Retry retry = new DiagridSpringAiProperties(null, null, null, null).retry();
+    Retry retry = new DiagridSpringAiProperties(null, null, null, null, null).retry();
     WorkflowTaskOptions options = retry.toWorkflowTaskOptions();
     assertNotNull(options, "retries are on by default");
     WorkflowTaskRetryPolicy policy = options.getRetryPolicy();
@@ -52,5 +55,17 @@ class DiagridSpringAiPropertiesTest {
   void retryDisabledYieldsNoOptions() {
     Retry retry = new Retry(false, null, null, null, null);
     assertNull(retry.toWorkflowTaskOptions(), "disabled retry must produce no activity options");
+  }
+
+  @Test
+  void analyticsDefaultsToEnabled() {
+    assertTrue(new DiagridSpringAiProperties(null, null, null, null, null).analytics().enabled());
+  }
+
+  @Test
+  void analyticsHonorsConfiguredValue() {
+    Analytics analytics =
+        new DiagridSpringAiProperties(null, null, null, null, new Analytics(false)).analytics();
+    assertFalse(analytics.enabled());
   }
 }

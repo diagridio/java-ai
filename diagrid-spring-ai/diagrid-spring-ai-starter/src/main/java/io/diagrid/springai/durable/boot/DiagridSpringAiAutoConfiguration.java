@@ -14,6 +14,8 @@ import io.dapr.workflows.client.DaprWorkflowClient;
 import io.dapr.workflows.runtime.WorkflowRuntime;
 import io.dapr.workflows.runtime.WorkflowRuntimeBuilder;
 import io.micrometer.observation.ObservationRegistry;
+import java.util.LinkedHashMap;
+import java.util.Map;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientCustomizer;
 import org.springframework.ai.chat.model.ChatModel;
@@ -46,6 +48,11 @@ import org.springframework.context.annotation.Bean;
     matchIfMissing = true)
 @EnableConfigurationProperties(DiagridSpringAiProperties.class)
 public class DiagridSpringAiAutoConfiguration {
+
+  // The artifactId that hosts the usage-analytics hook below, and the anonymous "package" and
+  // "version" dimensions reported with every event. See UsageAnalytics and the README's
+  // "Usage analytics" section.
+  private static final String USAGE_ANALYTICS_PACKAGE = "diagrid-spring-ai-starter";
 
   @Bean
   @ConditionalOnMissingBean
@@ -83,6 +90,39 @@ public class DiagridSpringAiAutoConfiguration {
   public SmartInitializingSingleton daprToolDiscoveryInitializer(
       DiscoveredTools tools, ApplicationContext context) {
     return () -> tools.populate(context);
+  }
+
+  /**
+   * Reports one anonymous usage event for this starter, once per process, after all singletons
+   * (including any user {@code ChatModel}/{@code ChatClient} beans) are instantiated. This bean
+   * only exists when the auto-configuration above activates, i.e. once per durable Spring AI
+   * application — the single place every such application passes through exactly once. See
+   * {@link UsageAnalytics} and the README's "Usage analytics" section, including how to opt out.
+   *
+   * <p>{@code diagrid.spring-ai.analytics.enabled=false} removes this bean, so a team that configures
+   * the starter in {@code application.yml} can switch reporting off there, per profile if it wants.
+   * The environment variables in {@link UsageAnalytics} keep working on top of it.
+   */
+  @Bean
+  @ConditionalOnProperty(prefix = "diagrid.spring-ai.analytics", name = "enabled", havingValue = "true",
+      matchIfMissing = true)
+  public SmartInitializingSingleton daprUsageAnalyticsInitializer() {
+    return () -> {
+      Map<String, String> dimensions = new LinkedHashMap<>();
+      dimensions.put("kind", "agent");
+      dimensions.put("framework", "SpringAI");
+      dimensions.put("framework_version", springAiVersion());
+      String version = UsageAnalytics.resolveVersion(DiagridSpringAiAutoConfiguration.class, USAGE_ANALYTICS_PACKAGE);
+      UsageAnalytics.report(USAGE_ANALYTICS_PACKAGE, version, dimensions);
+    };
+  }
+
+  // The installed version of the Spring AI chat-client library, or null when the package metadata
+  // is unavailable (e.g. running from exploded classes rather than a jar). UsageAnalytics drops a
+  // null dimension rather than sending "framework_version=".
+  private static String springAiVersion() {
+    Package springAiPackage = ChatClient.class.getPackage();
+    return springAiPackage == null ? null : springAiPackage.getImplementationVersion();
   }
 
   /** The in-process workflow worker. Started non-blocking; closed on shutdown. */

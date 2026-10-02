@@ -105,6 +105,12 @@
                  (Docker/Testcontainers + a live LLM) are excluded. The IT runs in the `-Pintegration`
                  lane below via Failsafe, not here. -->
             <excludedGroups>${dsa.excludedGroups}</excludedGroups>
+            <!-- The starter's usage-analytics hook (UsageAnalytics, wired into
+                 DiagridSpringAiAutoConfiguration) fires once per process. Disabling it for every
+                 Surefire fork means no test run, in CI or locally, ever sends a real event. -->
+            <environmentVariables>
+              <DIAGRID_NO_ANALYTICS>1</DIAGRID_NO_ANALYTICS>
+            </environmentVariables>
           </configuration>
         </plugin>
       </plugins>
@@ -266,6 +272,11 @@
                    itself); a manifest-only jar would give it a truncated classpath. -->
               <groups>integration</groups>
               <useManifestOnlyJar>false</useManifestOnlyJar>
+              <!-- Same reasoning as the Surefire configuration above: never send a real usage
+                   event from a test JVM. -->
+              <environmentVariables>
+                <DIAGRID_NO_ANALYTICS>1</DIAGRID_NO_ANALYTICS>
+              </environmentVariables>
             </configuration>
             <executions>
               <execution>

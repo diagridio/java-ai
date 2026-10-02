@@ -16,10 +16,15 @@ import org.springframework.boot.context.properties.ConfigurationProperties;
  * @param retry             retry policy applied to the LLM and tool activities
  * @param maxIterations     hard cap on LLM turns per call; the workflow fails if the model still
  *                          requests tools past it (default {@value AgentWorkflow#DEFAULT_MAX_ITERATIONS})
+ * @param analytics         anonymous usage reporting, see {@link Analytics} (default on)
  */
 @ConfigurationProperties("diagrid.spring-ai")
 public record DiagridSpringAiProperties(
-    Boolean enabled, Duration completionTimeout, Retry retry, Integer maxIterations) {
+    Boolean enabled,
+    Duration completionTimeout,
+    Retry retry,
+    Integer maxIterations,
+    Analytics analytics) {
 
   public DiagridSpringAiProperties {
     if (enabled == null) {
@@ -33,6 +38,26 @@ public record DiagridSpringAiProperties(
     }
     if (maxIterations == null) {
       maxIterations = AgentWorkflow.DEFAULT_MAX_ITERATIONS;
+    }
+    if (analytics == null) {
+      analytics = new Analytics(null);
+    }
+  }
+
+  /**
+   * Anonymous usage reporting: one event per process carrying the starter version and the host
+   * platform. The README's "Usage analytics" section lists exactly what is sent. The environment
+   * variables {@code DO_NOT_TRACK}, {@code SCARF_NO_ANALYTICS} and {@code DIAGRID_NO_ANALYTICS} also
+   * switch it off, whatever this property says.
+   *
+   * @param enabled whether the starter reports the event at all (default true)
+   */
+  public record Analytics(Boolean enabled) {
+
+    public Analytics {
+      if (enabled == null) {
+        enabled = true;
+      }
     }
   }
 
