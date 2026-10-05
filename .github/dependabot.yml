@@ -20,3 +20,6 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-patch"]
+      # Checkstyle 11+ needs Java 21 to run, and CI still builds on Java 17.
+      - dependency-name: "com.puppycrawl.tools:checkstyle"
+        versions: [">= 11"]
