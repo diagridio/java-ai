@@ -17,7 +17,8 @@ import org.springframework.stereotype.Component;
  * the escape hatch when you want full control over the window and the backing store.
  *
  * <p>Gated to the {@code memory} profile so the Dapr-backed {@link ChatMemoryRepository} is active and
- * conversations survive restarts.
+ * stored conversations survive restarts. The save after a turn is not yet part of the workflow: the
+ * advisor writes it from this app after the workflow returns, so a crash in between loses that turn.
  */
 @Component
 @Profile("memory")

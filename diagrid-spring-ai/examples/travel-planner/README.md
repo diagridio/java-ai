@@ -195,8 +195,9 @@ curl -G localhost:8080/chat --data-urlencode conversationId=bob \
 server-assigned id from the `X-Conversation-Id` header into `.last-conversation-id`, and reuses it
 for turns 2–3; `make test-chat-isolated` shows the isolation. Without a profile the history is
 in-process; under the `memory` profile the `diagrid-spring-ai-memory` starter backs `ChatMemory` with a
-Dapr state store (`agent-memory`), so conversations persist and survive restarts — inspect them with
-`make memory-list`.
+Dapr state store (`agent-memory`), so stored conversations persist and survive restarts — inspect them
+with `make memory-list`. The save after each turn is not yet part of the workflow: it runs in the app
+after the workflow returns, so a crash between the two loses that turn from memory.
 
 ## Crash recovery (kill the worker mid-call)
 

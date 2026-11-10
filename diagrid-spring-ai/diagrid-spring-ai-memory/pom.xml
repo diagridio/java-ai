@@ -12,7 +12,7 @@
 
   <artifactId>diagrid-spring-ai-memory</artifactId>
   <name>diagrid-spring-ai-memory</name>
-  <description>Durable Spring AI chat memory backed by a Dapr state store</description>
+  <description>Spring AI chat memory stored durably in a Dapr state store</description>
 
   <dependencies>
     <!-- Spring AI chat memory: ChatMemoryRepository, Message types -->

@@ -52,7 +52,7 @@ The other modules are optional and independent — add whichever you need (same
 | Artifact | What it adds |
 |---|---|
 | `diagrid-spring-ai-starter` | durable `ChatClient` (every call run as a workflow) plus agent-registry auto-publishing — the one you usually want |
-| `diagrid-spring-ai-memory` | durable chat memory backed by a state store |
+| `diagrid-spring-ai-memory` | chat memory stored durably in a state store (the save after a turn is not yet part of the workflow — see [Chat memory](#chat-memory)) |
 | `diagrid-spring-ai-conversation` | a `ChatModel` that calls LLMs through the Dapr Conversation API |
 
 All are on Maven Central under the `io.diagrid` group, at the latest release **0.2.0** (`main`
@@ -207,7 +207,9 @@ normal successful call, the **whole advisor chain applies** — chat memory reco
 the answer, etc. (Best-effort caveat: the memory advisor's request half also runs
 on the retry, so the user message appears twice around a failure — question,
 question, answer. Harmless to the model; app-level idempotency is the app's
-concern.)
+concern. The memory save runs in your app after the workflow returns, not inside
+it, so a crash between the two loses that turn from memory — see
+[Chat memory](#chat-memory).)
 
 Supplied ids are **bearer handles**: anyone who presents the id attaches to the run
 (and reads its result). A caller-supplied id may be guessable, unlike a random
@@ -467,8 +469,15 @@ annotations, no stack inspection), and it has limits worth knowing:
 ## Chat memory
 
 The `diagrid-spring-ai-memory` module (separate dependency) backs Spring AI's chat
-memory with a Dapr state store, so conversation history survives restarts and is
-shared across replicas — durable conversations to go with durable execution.
+memory with a Dapr state store, so stored conversation history survives restarts
+and is shared across replicas.
+
+> **What is durable, and what is not yet.** History that has been saved is durable.
+> The save after a turn is **not yet part of the workflow**: Spring AI's memory
+> advisor writes the turn from the calling app, after the durable workflow has
+> returned. A crash after the workflow finishes and before that save loses the
+> turn from memory, and retrying the turn stores the user message twice. Moving
+> the save into the workflow is planned.
 
 It provides a `ChatMemoryRepository` (registered *before* Spring AI's default)
 that persists each conversation's messages to a Dapr state store keyed by
@@ -485,7 +494,7 @@ Notes:
 
 - You still opt into chat memory the usual Spring AI way (a memory advisor on
   your `ChatClient`); this module only makes its storage durable — no code change
-  beyond that.
+  beyond that. The advisor still does the save, in your app, outside the workflow.
 - Keys use the Dapr Agents format **`{agent-name}:_memory_{conversationId}`**
   (agent-name spaces → dashes, whole key lowercased), so records interoperate with
   Dapr Agents' memory layout. Set `agent-name` to a specific agent if you want to
@@ -720,7 +729,8 @@ accessor and one propagated outbound call, and nothing else — is
 
 - [x] `diagrid-spring-ai` — durable `ChatClient` over Dapr Workflows
 - [x] Dapr [Conversation API](https://docs.dapr.io/developing-applications/building-blocks/conversation/) integration — Spring AI `ChatModel` backed by Dapr's Conversation building block
-- [x] Chat memory backed by a Dapr state store — durable conversation history via Spring AI's `ChatMemory`
+- [x] Chat memory backed by a Dapr state store — stored conversation history is durable, via Spring AI's `ChatMemory`
+- [ ] Chat memory save as part of the workflow — today the save after a turn runs in the calling app, outside the workflow
 - [x] Agent registry backed by a Dapr state store
 - [x] Inbound identity — verified end-user callers and on-behalf-of propagation, with a Spring-free core
 - [x] Spring Boot auto-configuration / starter

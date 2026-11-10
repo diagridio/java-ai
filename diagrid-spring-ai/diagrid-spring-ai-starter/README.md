@@ -96,7 +96,8 @@ while (answer == null) {
 
 Because the successful repeat runs the full advisor chain, chat memory records the answer as usual.
 (Best-effort: the memory advisor also re-records the user message on the retry, so a failed-then-
-retried turn shows the question twice — harmless.) To re-run a spent id, purge it first via the
+retried turn shows the question twice — harmless. The memory save is not yet part of the workflow:
+it runs in your app after the workflow returns, so a crash between the two loses the turn from memory.) To re-run a spent id, purge it first via the
 injectable `DaprWorkflowClient`: `daprWorkflowClient.purgeWorkflow(myId)`. With a generated id (none
 supplied) there's no attach handle — inspect the still-running run via the Diagrid dashboard or
 `dapr workflow` CLI using the id from the exception.

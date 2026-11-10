@@ -20,6 +20,9 @@ import org.springframework.context.annotation.Bean;
  * chat memory and the Dapr client are on the classpath and {@code diagrid.spring-ai.memory.enabled} is
  * not false. No user code changes beyond using Spring AI chat memory as usual; a user-supplied
  * {@link ChatMemoryRepository} bean still wins.
+ *
+ * <p>Stored history is durable; the save after a turn is not yet part of the workflow (it runs in the
+ * calling app after the workflow returns) — see {@code DaprStateChatMemoryRepository}.
  */
 @AutoConfiguration(
     beforeName = "org.springframework.ai.model.chat.memory.autoconfigure.ChatMemoryAutoConfiguration")

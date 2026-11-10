@@ -6,8 +6,11 @@ package io.diagrid.springai.memory;
  * id must have a single writer at a time (sticky routing, no double-submit, not two agents sharing an
  * id). The write is failed loudly rather than merged, because two windows generated without seeing
  * each other cannot be reconciled without fabricating a false history — see
- * {@link DaprStateChatMemoryRepository}. The rejected turn's LLM work is preserved by the durable
- * layer and re-attempted on reissue, so failing here is cheap.
+ * {@link DaprStateChatMemoryRepository}. The memory save runs in the calling app, outside the durable
+ * workflow, so the rejected turn is not saved; handle it by retrying the turn. With a reused,
+ * caller-supplied instance id the retry attaches to the completed workflow and returns its recorded
+ * answer without re-running the LLM call; with no supplied id the retry runs a fresh workflow
+ * execution. Either way the memory save on retry again happens in the app, outside the workflow.
  */
 public class ConcurrentConversationModificationException extends RuntimeException {
 
