@@ -12,7 +12,12 @@ import org.springframework.ai.chat.messages.MessageType;
 
 /**
  * A Spring AI {@link ChatMemoryRepository} that persists conversation history in a Dapr state store,
- * keyed by conversation id, so history survives restarts and is shared across replicas.
+ * keyed by conversation id, so stored history survives restarts and is shared across replicas.
+ *
+ * <p><b>Durability scope.</b> History that has been saved is durable. The save after a turn is
+ * <i>not yet part of the workflow</i>: Spring AI's memory advisor calls this repository from the
+ * calling app after the durable workflow has returned, so a crash between the two loses the turn from
+ * memory, and retrying the turn stores the user message twice.
  *
  * <p>Only conversational turns (user/assistant/system) are persisted; tool messages are omitted, as
  * they are not part of the durable conversation. {@link #findConversationIds()} is unsupported — a
