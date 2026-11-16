@@ -47,7 +47,7 @@
     <springboot.version>4.0.5</springboot.version>
     <!-- Jackson 2 = the version durabletask's DataConverter serializes activity payloads with.
          (Spring AI 2.0 itself uses Jackson 3 under tools.jackson; the two coexist on the classpath.) -->
-    <jackson2.version>2.22.1</jackson2.version>
+    <jackson2.version>2.23.0</jackson2.version>
     <!-- JOSE/JWT for diagrid-ai-identity. Not covered by any of the three imported BOMs — Spring Boot
          manages it only when Spring Security's OAuth2 resource-server support is on the classpath, and
          that module is deliberately Spring-free — so the version is pinned here rather than in the
