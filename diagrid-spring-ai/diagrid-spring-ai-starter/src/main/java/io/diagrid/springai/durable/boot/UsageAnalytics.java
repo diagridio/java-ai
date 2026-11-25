@@ -82,6 +82,9 @@ final class UsageAnalytics {
 
   private static final String DAPR_API_TOKEN_ENV_VAR = "DAPR_API_TOKEN";
 
+  /** Set inside every Kubernetes pod. Reo is never contacted from a cluster. */
+  private static final String KUBERNETES_ENV_VAR = "KUBERNETES_SERVICE_HOST";
+
   private static final String CATALYST_HOST_SUFFIX = "diagrid.io";
 
   private static final int DIMENSION_MAX_LEN = 64;
@@ -214,6 +217,47 @@ final class UsageAnalytics {
   boolean isReportingDisabled() {
     for (String name : OPT_OUT_ENV_VARS) {
       if (isTruthy(env.apply(name))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * The Reo gate. Stricter than Scarf's, which is the opt-out check alone. True only when no opt-out
+   * variable is set, the process is not in a Kubernetes cluster, it is not pointed at Catalyst, and it
+   * is not running in CI. Anything that cannot be determined, including an exception or a Dapr
+   * endpoint that does not parse, means no event. The Spring property needs no check here: when it is
+   * false the reporting bean does not exist.
+   */
+  boolean reoAllowed() {
+    try {
+      if (isReportingDisabled()) {
+        return false;
+      }
+      String kubernetes = env.apply(KUBERNETES_ENV_VAR);
+      if (kubernetes != null && !kubernetes.trim().isEmpty()) {
+        return false;
+      }
+      if (hasUnparsableDaprEndpoint() || !"dapr".equals(detectTarget())) {
+        return false;
+      }
+      return !isRunningInCi();
+    } catch (RuntimeException e) {
+      return false;
+    }
+  }
+
+  /** True when a Dapr endpoint variable is set but its host can't be read. The Reo gate fails closed. */
+  private boolean hasUnparsableDaprEndpoint() {
+    for (String name : DAPR_ENDPOINT_ENV_VARS) {
+      String raw = env.apply(name);
+      if (raw == null || raw.trim().isEmpty()) {
+        continue;
+      }
+      String trimmed = raw.trim();
+      String candidate = trimmed.contains("://") ? trimmed : "https://" + trimmed;
+      if (hostOf(candidate) == null) {
         return true;
       }
     }
