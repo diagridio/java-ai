@@ -729,28 +729,51 @@ accessor and one propagated outbound call, and nothing else — is
 
 ## Usage analytics
 
-The starter reports one anonymous usage event when the durable `ChatClient` auto-configuration
-activates, once per package per process. Maven Central publishes aggregate download counts only,
-so this is how Diagrid sees which package versions run on which platforms. Because it is one event
-per process, a Kubernetes deployment produces one event per replica per restart: the numbers count
-process starts, not deployments or users.
+The starter reports anonymous usage events to two services, [Scarf](https://scarf.sh) and
+[Reo](https://www.reo.dev). Maven Central publishes aggregate download counts only, so these events
+show which package versions run on which platforms. Both services derive coarse company and
+location information from the request IP. How they handle that data is described in
+[Scarf's privacy policy](https://about.scarf.sh/privacy-policy) and
+[Reo's privacy policy](https://www.reo.dev/privacy-policy).
+
+The starter sends one event to each service when the durable `ChatClient` auto-configuration
+activates, once per package per process. Because it is one event per process, a Kubernetes
+deployment produces one event per replica per restart: the numbers count process starts, not
+deployments or users.
 
 **What is sent:** the package name and version, the operating system, architecture and JVM
-version, the agent framework and the installed version of its library (`framework`,
-`framework_version`), `kind=agent`, whether the process points at Catalyst or at a plain Dapr
-sidecar (`target`), and whether it runs under a CI variable (`ci`). Nothing else: no application
-data, configuration, app IDs, prompts, or hostnames. The receiving service is
-[Scarf](https://scarf.sh). It derives coarse company and location information from the request IP.
-How Scarf handles that data is described in
-[Scarf's privacy policy](https://about.scarf.sh/privacy-policy).
+version, the agent framework and the installed version of its library, and `kind=agent`. Nothing
+else: no application data, configuration, app IDs, prompts, hostnames or file paths.
 
-**It never gets in the way:** the request is dispatched asynchronously on a background daemon
+| | Scarf | Reo |
+|---|---|---|
+| Fields | `package`, `version`, `os`, `arch`, `java_version`, `target`, `ci`, `kind`, `framework`, `framework_version` | `activity_type=maven_runtime`, `product`, `version`, `jvm`, `platform`, `arch`, `kind`, `framework`, `framework_version` |
+| `target` and `ci` | sent | not sent |
+
+`target` says whether the process points at Catalyst or at a plain Dapr sidecar. `ci` says whether
+a CI variable is set.
+
+**When Reo is skipped:** Reo is not contacted from Kubernetes, from CI, or when the application
+points at Catalyst. Scarf is still contacted in those cases, so the two services report different
+totals. Reo is skipped when any of these is true:
+
+- you opt out (see below)
+- `KUBERNETES_SERVICE_HOST` is set
+- the Dapr gRPC or HTTP endpoint is a host under `diagrid.io`, or a Dapr API token is set. The
+  starter reads these from the `DAPR_GRPC_ENDPOINT`, `DAPR_HTTP_ENDPOINT` and `DAPR_API_TOKEN`
+  environment variables and from Spring configuration, including the Dapr Spring Boot starter's
+  `dapr.client.grpc-endpoint`, `dapr.client.http-endpoint` and `dapr.client.api-token` properties
+- a Dapr endpoint is set but can't be parsed
+- a CI variable is set, such as `CI`, `GITHUB_ACTIONS` or `GITLAB_CI`
+
+**It never gets in the way:** each request is dispatched asynchronously on a background daemon
 thread with a one second timeout, every failure is swallowed, and the calling thread never waits.
 Blocked egress and air-gapped clusters behave normally. Nothing is written to your application's
 output; a `DEBUG` line on the `io.diagrid.springai.durable.boot.UsageAnalytics` logger records
-whether the event was sent, skipped, or failed, for operators who want to confirm an opt-out.
+whether each event was sent, skipped, or failed, for operators who want to confirm an opt-out.
 
-To opt out, set the Spring property, which removes the reporting bean and works per profile:
+To opt out of both services, set the Spring property, which removes the reporting bean and works
+per profile:
 
 ```yaml
 diagrid:
@@ -771,7 +794,7 @@ export DIAGRID_NO_ANALYTICS=1
 ```
 
 Either switch alone is enough. A value of `0`, `false`, or an empty string does not opt out. The
-endpoint is fixed at build time and is not configurable.
+endpoints are fixed at build time and are not configurable.
 
 ## Requirements
 
