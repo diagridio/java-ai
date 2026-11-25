@@ -150,6 +150,16 @@ final class UsageAnalytics {
     DEFAULT_INSTANCE.reportEvent(packageName, version, dimensions);
   }
 
+  /**
+   * As {@link #report(String, String, Map)}, but every environment lookup (opt-out, CI, Kubernetes and
+   * the Dapr target) goes through {@code env}, for example a lookup backed by Spring's Environment.
+   * The per-process dedupe is shared with the default reporter.
+   */
+  static void report(
+      String packageName, String version, Map<String, String> dimensions, Function<String, String> env) {
+    new UsageAnalytics(DEFAULT_ENDPOINT, env, UsageAnalytics::sendHttp).reportEvent(packageName, version, dimensions);
+  }
+
   /** Clears the per-process guard. Visible for tests only. */
   static void resetForTesting() {
     REPORTED.clear();

@@ -27,7 +27,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.EnvironmentAware;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 
 /**
  * Auto-configuration that makes Spring AI {@code ChatClient} calls durable via Dapr Workflows.
@@ -47,12 +49,23 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnProperty(prefix = "diagrid.spring-ai", name = "enabled", havingValue = "true",
     matchIfMissing = true)
 @EnableConfigurationProperties(DiagridSpringAiProperties.class)
-public class DiagridSpringAiAutoConfiguration {
+public class DiagridSpringAiAutoConfiguration implements EnvironmentAware {
 
   // The artifactId that hosts the usage-analytics hook below, and the anonymous "package" and
   // "version" dimensions reported with every event. See UsageAnalytics and the README's
   // "Usage analytics" section.
   private static final String USAGE_ANALYTICS_PACKAGE = "diagrid-spring-ai-starter";
+
+  /**
+   * Spring's Environment, so usage reporting can see Dapr configuration that comes from
+   * application.yml or a profile rather than environment variables. Null until Spring sets it.
+   */
+  private Environment environment;
+
+  @Override
+  public void setEnvironment(Environment environment) {
+    this.environment = environment;
+  }
 
   @Bean
   @ConditionalOnMissingBean
@@ -113,7 +126,8 @@ public class DiagridSpringAiAutoConfiguration {
       dimensions.put("framework", "SpringAI");
       dimensions.put("framework_version", springAiVersion());
       String version = UsageAnalytics.resolveVersion(DiagridSpringAiAutoConfiguration.class, USAGE_ANALYTICS_PACKAGE);
-      UsageAnalytics.report(USAGE_ANALYTICS_PACKAGE, version, dimensions);
+      UsageAnalytics.report(
+          USAGE_ANALYTICS_PACKAGE, version, dimensions, SpringEnvironmentLookup.resolver(environment));
     };
   }
 
