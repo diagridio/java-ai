@@ -19,6 +19,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -40,6 +41,9 @@ import org.slf4j.LoggerFactory;
  * resolution, so a network that black-holes lookups can still take longer than a second before
  * the executor's thread is free again; the calling thread never waits on it either way. Blocked
  * egress and air-gapped clusters are normal conditions, not faults.
+ *
+ * <p>Events go to a list of destinations, each with its own gate and URL format, and each package is
+ * reported at most once per destination per process.
  *
  * <p>Two switches turn it off: the Spring property {@code diagrid.spring-ai.analytics.enabled=false},
  * which removes the reporting bean, and any of {@code DO_NOT_TRACK}, {@code SCARF_NO_ANALYTICS} or
@@ -82,8 +86,12 @@ final class UsageAnalytics {
 
   private static final int DIMENSION_MAX_LEN = 64;
 
-  /** Packages already reported in this process. Shared across every instance. */
-  private static final Set<String> REPORTED_PACKAGES = ConcurrentHashMap.newKeySet();
+  /**
+   * Destination and package pairs already reported in this process, as {@code destination:package}.
+   * Shared across every instance. Keyed per destination so a closed gate on one destination never
+   * consumes another destination's single send.
+   */
+  private static final Set<String> REPORTED = ConcurrentHashMap.newKeySet();
 
   private static final ExecutorService EXECUTOR = newDaemonExecutor();
 
@@ -96,6 +104,7 @@ final class UsageAnalytics {
   private final String endpoint;
   private final Function<String, String> env;
   private final Sender sender;
+  private final List<Destination> destinations;
 
   /**
    * @param endpoint the event-collection URL; empty disables reporting
@@ -107,6 +116,20 @@ final class UsageAnalytics {
     this.endpoint = endpoint;
     this.env = env;
     this.sender = sender;
+    this.destinations = List.of(new Destination("scarf", endpoint, () -> !isReportingDisabled(), this::buildUrl));
+  }
+
+  private UsageAnalytics(Function<String, String> env, Sender sender, List<Destination> destinations) {
+    this.endpoint = "";
+    this.env = env;
+    this.sender = sender;
+    this.destinations = List.copyOf(destinations);
+  }
+
+  /** A reporter with an explicit destination list. Visible for tests only. */
+  static UsageAnalytics withDestinations(
+      Function<String, String> env, Sender sender, List<Destination> destinations) {
+    return new UsageAnalytics(env, sender, destinations);
   }
 
   /**
@@ -126,7 +149,7 @@ final class UsageAnalytics {
 
   /** Clears the per-process guard. Visible for tests only. */
   static void resetForTesting() {
-    REPORTED_PACKAGES.clear();
+    REPORTED.clear();
   }
 
   /**
@@ -161,22 +184,29 @@ final class UsageAnalytics {
 
   /** Instance form of {@link #report}, used directly by tests against a configured instance. */
   void reportEvent(String packageName, String version, Map<String, String> dimensions) {
+    for (Destination destination : destinations) {
+      reportTo(destination, packageName, version, dimensions);
+    }
+  }
+
+  /** Sends one destination's event. Never throws, so one destination cannot affect another. */
+  private void reportTo(Destination destination, String packageName, String version, Map<String, String> dimensions) {
     try {
-      if (endpoint == null || endpoint.isEmpty()) {
+      if (destination.endpoint() == null || destination.endpoint().isEmpty()) {
         return;
       }
-      if (!REPORTED_PACKAGES.add(packageName)) {
+      if (!REPORTED.add(destination.name() + ":" + packageName)) {
         return;
       }
-      if (isReportingDisabled()) {
-        LOG.debug("Usage reporting for {} is disabled by the environment", packageName);
+      if (!destination.gate().getAsBoolean()) {
+        LOG.debug("Usage reporting for {} to {} is disabled", packageName, destination.name());
         return;
       }
-      String url = buildUrl(packageName, version, dimensions);
+      String url = destination.urlBuilder().build(packageName, version, dimensions);
       String userAgent = packageName + "/" + version;
       sender.send(url, userAgent);
     } catch (RuntimeException e) {
-      LOG.debug("Usage event for {} not sent: {}", packageName, e.toString());
+      LOG.debug("Usage event for {} to {} not sent: {}", packageName, destination.name(), e.toString());
     }
   }
 
@@ -344,4 +374,16 @@ final class UsageAnalytics {
   interface Sender {
     void send(String url, String userAgent);
   }
+
+  /** Builds one destination's event URL. */
+  @FunctionalInterface
+  interface UrlBuilder {
+    String build(String packageName, String version, Map<String, String> dimensions);
+  }
+
+  /**
+   * One place usage events go: its name (the dedupe key), its endpoint (empty disables it), the gate
+   * that must be open for it to send, and how its URL is built.
+   */
+  record Destination(String name, String endpoint, BooleanSupplier gate, UrlBuilder urlBuilder) { }
 }
