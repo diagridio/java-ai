@@ -195,8 +195,14 @@ final class UsageAnalytics {
    */
   static void report(
       String packageName, String version, Map<String, String> dimensions, Function<String, String> env) {
-    new UsageAnalytics(DEFAULT_ENDPOINT, REO_ENDPOINT, env, UsageAnalytics::sendHttp)
-        .reportEvent(packageName, version, dimensions);
+    report(packageName, version, dimensions, env, UsageAnalytics::sendHttp);
+  }
+
+  /** As {@link #report(String, String, Map, Function)}, with an explicit sender. Visible for tests. */
+  static void report(
+      String packageName, String version, Map<String, String> dimensions, Function<String, String> env,
+      Sender sender) {
+    new UsageAnalytics(DEFAULT_ENDPOINT, REO_ENDPOINT, env, sender).reportEvent(packageName, version, dimensions);
   }
 
   /** Clears the per-process guard. Visible for tests only. */
