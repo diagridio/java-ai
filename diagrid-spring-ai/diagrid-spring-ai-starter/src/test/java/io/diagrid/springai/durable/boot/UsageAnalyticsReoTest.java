@@ -278,9 +278,10 @@ class UsageAnalyticsReoTest {
       thread =
           new Thread(
               () -> {
-                try (Socket client = socket.accept()) {
-                  BufferedReader in =
-                      new BufferedReader(new InputStreamReader(client.getInputStream(), StandardCharsets.US_ASCII));
+                try (Socket client = socket.accept();
+                    BufferedReader in =
+                        new BufferedReader(
+                            new InputStreamReader(client.getInputStream(), StandardCharsets.US_ASCII))) {
                   String line;
                   while ((line = in.readLine()) != null && !line.isEmpty()) {
                     synchronized (lines) {
