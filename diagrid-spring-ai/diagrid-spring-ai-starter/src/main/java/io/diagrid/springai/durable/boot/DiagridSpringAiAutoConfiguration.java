@@ -16,6 +16,7 @@ import io.dapr.workflows.runtime.WorkflowRuntimeBuilder;
 import io.micrometer.observation.ObservationRegistry;
 import java.util.LinkedHashMap;
 import java.util.Map;
+import java.util.function.Function;
 import org.springframework.ai.chat.client.ChatClient;
 import org.springframework.ai.chat.client.ChatClientCustomizer;
 import org.springframework.ai.chat.model.ChatModel;
@@ -27,7 +28,9 @@ import org.springframework.boot.context.properties.EnableConfigurationProperties
 import org.springframework.beans.factory.ObjectProvider;
 import org.springframework.beans.factory.SmartInitializingSingleton;
 import org.springframework.context.ApplicationContext;
+import org.springframework.context.EnvironmentAware;
 import org.springframework.context.annotation.Bean;
+import org.springframework.core.env.Environment;
 
 /**
  * Auto-configuration that makes Spring AI {@code ChatClient} calls durable via Dapr Workflows.
@@ -47,12 +50,23 @@ import org.springframework.context.annotation.Bean;
 @ConditionalOnProperty(prefix = "diagrid.spring-ai", name = "enabled", havingValue = "true",
     matchIfMissing = true)
 @EnableConfigurationProperties(DiagridSpringAiProperties.class)
-public class DiagridSpringAiAutoConfiguration {
+public class DiagridSpringAiAutoConfiguration implements EnvironmentAware {
 
   // The artifactId that hosts the usage-analytics hook below, and the anonymous "package" and
   // "version" dimensions reported with every event. See UsageAnalytics and the README's
   // "Usage analytics" section.
   private static final String USAGE_ANALYTICS_PACKAGE = "diagrid-spring-ai-starter";
+
+  /**
+   * Spring's Environment, so usage reporting can see Dapr configuration that comes from
+   * application.yml or a profile rather than environment variables. Null until Spring sets it.
+   */
+  private Environment environment;
+
+  @Override
+  public void setEnvironment(Environment environment) {
+    this.environment = environment;
+  }
 
   @Bean
   @ConditionalOnMissingBean
@@ -107,14 +121,22 @@ public class DiagridSpringAiAutoConfiguration {
   @ConditionalOnProperty(prefix = "diagrid.spring-ai.analytics", name = "enabled", havingValue = "true",
       matchIfMissing = true)
   public SmartInitializingSingleton daprUsageAnalyticsInitializer() {
-    return () -> {
-      Map<String, String> dimensions = new LinkedHashMap<>();
-      dimensions.put("kind", "agent");
-      dimensions.put("framework", "SpringAI");
-      dimensions.put("framework_version", springAiVersion());
-      String version = UsageAnalytics.resolveVersion(DiagridSpringAiAutoConfiguration.class, USAGE_ANALYTICS_PACKAGE);
-      UsageAnalytics.report(USAGE_ANALYTICS_PACKAGE, version, dimensions);
-    };
+    return () -> reportUsage(UsageAnalytics::sendHttp, System::getenv);
+  }
+
+  /**
+   * The initializer's work: one usage event per destination, with every environment lookup going
+   * through Spring's Environment first and {@code fallback} last. Package-private so a test can pass
+   * a recording sender and a fallback that ignores the real environment.
+   */
+  void reportUsage(UsageAnalytics.Sender sender, Function<String, String> fallback) {
+    Map<String, String> dimensions = new LinkedHashMap<>();
+    dimensions.put("kind", "agent");
+    dimensions.put("framework", "SpringAI");
+    dimensions.put("framework_version", springAiVersion());
+    String version = UsageAnalytics.resolveVersion(DiagridSpringAiAutoConfiguration.class, USAGE_ANALYTICS_PACKAGE);
+    UsageAnalytics.report(
+        USAGE_ANALYTICS_PACKAGE, version, dimensions, SpringEnvironmentLookup.resolver(environment, fallback), sender);
   }
 
   // The installed version of the Spring AI chat-client library, or null when the package metadata

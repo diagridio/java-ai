@@ -9,6 +9,7 @@ import java.net.http.HttpRequest;
 import java.net.http.HttpResponse;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
@@ -19,6 +20,7 @@ import java.util.concurrent.ConcurrentHashMap;
 import java.util.concurrent.ExecutorService;
 import java.util.concurrent.Executors;
 import java.util.concurrent.ThreadFactory;
+import java.util.function.BooleanSupplier;
 import java.util.function.Function;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
@@ -41,6 +43,9 @@ import org.slf4j.LoggerFactory;
  * the executor's thread is free again; the calling thread never waits on it either way. Blocked
  * egress and air-gapped clusters are normal conditions, not faults.
  *
+ * <p>Events go to a list of destinations, each with its own gate and URL format, and each package is
+ * reported at most once per destination per process.
+ *
  * <p>Two switches turn it off: the Spring property {@code diagrid.spring-ai.analytics.enabled=false},
  * which removes the reporting bean, and any of {@code DO_NOT_TRACK}, {@code SCARF_NO_ANALYTICS} or
  * {@code DIAGRID_NO_ANALYTICS} set to {@code 1}, {@code true}, {@code yes} or {@code on}
@@ -57,6 +62,23 @@ final class UsageAnalytics {
    * make the reporter a no-op; there is no way to change it in a deployment.
    */
   static final String DEFAULT_ENDPOINT = "https://diagrid.gateway.scarf.sh/java-ai";
+
+  /**
+   * Reo's unauthenticated telemetry endpoint on Diagrid's tenant. No API key and no auth header:
+   * nothing secret goes into a published artifact. Reo attributes the event to a company from the
+   * request IP.
+   */
+  static final String REO_ENDPOINT = "https://telemetry.diagrid.io/data";
+
+  /** The Reo activity type this artifact reports, as registered on the tenant. */
+  private static final String REO_ACTIVITY_TYPE = "maven_runtime";
+
+  /**
+   * Collected dimension name to the key registered in Reo, in the order they are sent. Anything not
+   * listed, including {@code target} and {@code ci}, is not sent to Reo: the Reo gate makes both
+   * constant on every event.
+   */
+  private static final Map<String, String> REO_KEYS = reoKeys();
 
   private static final Duration TIMEOUT = Duration.ofSeconds(1);
 
@@ -78,12 +100,19 @@ final class UsageAnalytics {
 
   private static final String DAPR_API_TOKEN_ENV_VAR = "DAPR_API_TOKEN";
 
+  /** Set inside every Kubernetes pod. Reo is never contacted from a cluster. */
+  private static final String KUBERNETES_ENV_VAR = "KUBERNETES_SERVICE_HOST";
+
   private static final String CATALYST_HOST_SUFFIX = "diagrid.io";
 
   private static final int DIMENSION_MAX_LEN = 64;
 
-  /** Packages already reported in this process. Shared across every instance. */
-  private static final Set<String> REPORTED_PACKAGES = ConcurrentHashMap.newKeySet();
+  /**
+   * Destination and package pairs already reported in this process, as {@code destination:package}.
+   * Shared across every instance. Keyed per destination so a closed gate on one destination never
+   * consumes another destination's single send.
+   */
+  private static final Set<String> REPORTED = ConcurrentHashMap.newKeySet();
 
   private static final ExecutorService EXECUTOR = newDaemonExecutor();
 
@@ -91,11 +120,13 @@ final class UsageAnalytics {
       HttpClient.newBuilder().connectTimeout(TIMEOUT).executor(EXECUTOR).build();
 
   private static final UsageAnalytics DEFAULT_INSTANCE =
-      new UsageAnalytics(DEFAULT_ENDPOINT, System::getenv, UsageAnalytics::sendHttp);
+      new UsageAnalytics(DEFAULT_ENDPOINT, REO_ENDPOINT, System::getenv, UsageAnalytics::sendHttp);
 
   private final String endpoint;
+  private final String reoEndpoint;
   private final Function<String, String> env;
   private final Sender sender;
+  private final List<Destination> destinations;
 
   /**
    * @param endpoint the event-collection URL; empty disables reporting
@@ -105,8 +136,41 @@ final class UsageAnalytics {
    */
   UsageAnalytics(String endpoint, Function<String, String> env, Sender sender) {
     this.endpoint = endpoint;
+    this.reoEndpoint = "";
     this.env = env;
     this.sender = sender;
+    this.destinations = List.of(new Destination("scarf", endpoint, () -> !isReportingDisabled(), this::buildUrl));
+  }
+
+  /**
+   * A reporter that sends to Scarf and to Reo, each behind its own gate.
+   *
+   * @param endpoint    the Scarf event-collection URL; empty disables Scarf
+   * @param reoEndpoint the Reo telemetry URL; empty disables Reo
+   */
+  UsageAnalytics(String endpoint, String reoEndpoint, Function<String, String> env, Sender sender) {
+    this.endpoint = endpoint;
+    this.reoEndpoint = reoEndpoint;
+    this.env = env;
+    this.sender = sender;
+    this.destinations =
+        List.of(
+            new Destination("scarf", endpoint, () -> !isReportingDisabled(), this::buildUrl),
+            new Destination("reo", reoEndpoint, this::reoAllowed, this::buildReoUrl));
+  }
+
+  private UsageAnalytics(Function<String, String> env, Sender sender, List<Destination> destinations) {
+    this.endpoint = "";
+    this.reoEndpoint = "";
+    this.env = env;
+    this.sender = sender;
+    this.destinations = List.copyOf(destinations);
+  }
+
+  /** A reporter with an explicit destination list. Visible for tests only. */
+  static UsageAnalytics withDestinations(
+      Function<String, String> env, Sender sender, List<Destination> destinations) {
+    return new UsageAnalytics(env, sender, destinations);
   }
 
   /**
@@ -124,9 +188,26 @@ final class UsageAnalytics {
     DEFAULT_INSTANCE.reportEvent(packageName, version, dimensions);
   }
 
+  /**
+   * As {@link #report(String, String, Map)}, but every environment lookup (opt-out, CI, Kubernetes and
+   * the Dapr target) goes through {@code env}, for example a lookup backed by Spring's Environment.
+   * The per-process dedupe is shared with the default reporter.
+   */
+  static void report(
+      String packageName, String version, Map<String, String> dimensions, Function<String, String> env) {
+    report(packageName, version, dimensions, env, UsageAnalytics::sendHttp);
+  }
+
+  /** As {@link #report(String, String, Map, Function)}, with an explicit sender. Visible for tests. */
+  static void report(
+      String packageName, String version, Map<String, String> dimensions, Function<String, String> env,
+      Sender sender) {
+    new UsageAnalytics(DEFAULT_ENDPOINT, REO_ENDPOINT, env, sender).reportEvent(packageName, version, dimensions);
+  }
+
   /** Clears the per-process guard. Visible for tests only. */
   static void resetForTesting() {
-    REPORTED_PACKAGES.clear();
+    REPORTED.clear();
   }
 
   /**
@@ -161,22 +242,29 @@ final class UsageAnalytics {
 
   /** Instance form of {@link #report}, used directly by tests against a configured instance. */
   void reportEvent(String packageName, String version, Map<String, String> dimensions) {
+    for (Destination destination : destinations) {
+      reportTo(destination, packageName, version, dimensions);
+    }
+  }
+
+  /** Sends one destination's event. Never throws, so one destination cannot affect another. */
+  private void reportTo(Destination destination, String packageName, String version, Map<String, String> dimensions) {
     try {
-      if (endpoint == null || endpoint.isEmpty()) {
+      if (destination.endpoint() == null || destination.endpoint().isEmpty()) {
         return;
       }
-      if (!REPORTED_PACKAGES.add(packageName)) {
+      if (!REPORTED.add(destination.name() + ":" + packageName)) {
         return;
       }
-      if (isReportingDisabled()) {
-        LOG.debug("Usage reporting for {} is disabled by the environment", packageName);
+      if (!destination.gate().getAsBoolean()) {
+        LOG.debug("Usage reporting for {} to {} is disabled", packageName, destination.name());
         return;
       }
-      String url = buildUrl(packageName, version, dimensions);
+      String url = destination.urlBuilder().build(packageName, version, dimensions);
       String userAgent = packageName + "/" + version;
       sender.send(url, userAgent);
     } catch (RuntimeException e) {
-      LOG.debug("Usage event for {} not sent: {}", packageName, e.toString());
+      LOG.debug("Usage event for {} to {} not sent: {}", packageName, destination.name(), e.toString());
     }
   }
 
@@ -184,6 +272,47 @@ final class UsageAnalytics {
   boolean isReportingDisabled() {
     for (String name : OPT_OUT_ENV_VARS) {
       if (isTruthy(env.apply(name))) {
+        return true;
+      }
+    }
+    return false;
+  }
+
+  /**
+   * The Reo gate. Stricter than Scarf's, which is the opt-out check alone. True only when no opt-out
+   * variable is set, the process is not in a Kubernetes cluster, it is not pointed at Catalyst, and it
+   * is not running in CI. Anything that cannot be determined, including an exception or a Dapr
+   * endpoint that does not parse, means no event. The Spring property needs no check here: when it is
+   * false the reporting bean does not exist.
+   */
+  boolean reoAllowed() {
+    try {
+      if (isReportingDisabled()) {
+        return false;
+      }
+      String kubernetes = env.apply(KUBERNETES_ENV_VAR);
+      if (kubernetes != null && !kubernetes.trim().isEmpty()) {
+        return false;
+      }
+      if (hasUnparsableDaprEndpoint() || !"dapr".equals(detectTarget())) {
+        return false;
+      }
+      return !isRunningInCi();
+    } catch (RuntimeException e) {
+      return false;
+    }
+  }
+
+  /** True when a Dapr endpoint variable is set but its host can't be read. The Reo gate fails closed. */
+  private boolean hasUnparsableDaprEndpoint() {
+    for (String name : DAPR_ENDPOINT_ENV_VARS) {
+      String raw = env.apply(name);
+      if (raw == null || raw.trim().isEmpty()) {
+        continue;
+      }
+      String trimmed = raw.trim();
+      String candidate = trimmed.contains("://") ? trimmed : "https://" + trimmed;
+      if (hostOf(candidate) == null) {
         return true;
       }
     }
@@ -237,8 +366,30 @@ final class UsageAnalytics {
     return token != null && !token.trim().isEmpty() ? "catalyst" : "dapr";
   }
 
-  /** Builds the event URL. Exposed package-private for tests. */
+  /** Builds the Scarf event URL. Exposed package-private for tests. */
   String buildUrl(String packageName, String version, Map<String, String> dimensions) {
+    return endpoint + "?" + encode(collect(packageName, version, dimensions));
+  }
+
+  /**
+   * Builds the Reo event URL: {@code activity_type=maven_runtime} followed by the collected dimensions
+   * under the names registered in Reo. Exposed package-private for tests.
+   */
+  String buildReoUrl(String packageName, String version, Map<String, String> dimensions) {
+    Map<String, String> collected = collect(packageName, version, dimensions);
+    Map<String, String> params = new LinkedHashMap<>();
+    params.put("activity_type", REO_ACTIVITY_TYPE);
+    for (Map.Entry<String, String> key : REO_KEYS.entrySet()) {
+      String value = clean(collected.get(key.getKey()));
+      if (value != null) {
+        params.put(key.getValue(), value);
+      }
+    }
+    return reoEndpoint + "?" + encode(params);
+  }
+
+  /** The default dimensions plus the caller's, cleaned. Shared by every destination's URL builder. */
+  private Map<String, String> collect(String packageName, String version, Map<String, String> dimensions) {
     Map<String, String> params = new LinkedHashMap<>();
     params.put("package", packageName);
     params.put("version", version);
@@ -257,6 +408,10 @@ final class UsageAnalytics {
         }
       }
     }
+    return params;
+  }
+
+  private static String encode(Map<String, String> params) {
     StringBuilder query = new StringBuilder();
     for (Map.Entry<String, String> entry : params.entrySet()) {
       if (query.length() > 0) {
@@ -266,7 +421,20 @@ final class UsageAnalytics {
       query.append('=');
       query.append(URLEncoder.encode(entry.getValue(), StandardCharsets.UTF_8));
     }
-    return endpoint + "?" + query;
+    return query.toString();
+  }
+
+  private static Map<String, String> reoKeys() {
+    Map<String, String> keys = new LinkedHashMap<>();
+    keys.put("package", "product");
+    keys.put("version", "version");
+    keys.put("java_version", "jvm");
+    keys.put("os", "platform");
+    keys.put("arch", "arch");
+    keys.put("kind", "kind");
+    keys.put("framework", "framework");
+    keys.put("framework_version", "framework_version");
+    return Collections.unmodifiableMap(keys);
   }
 
   private static String hostOf(String candidate) {
@@ -344,4 +512,16 @@ final class UsageAnalytics {
   interface Sender {
     void send(String url, String userAgent);
   }
+
+  /** Builds one destination's event URL. */
+  @FunctionalInterface
+  interface UrlBuilder {
+    String build(String packageName, String version, Map<String, String> dimensions);
+  }
+
+  /**
+   * One place usage events go: its name (the dedupe key), its endpoint (empty disables it), the gate
+   * that must be open for it to send, and how its URL is built.
+   */
+  record Destination(String name, String endpoint, BooleanSupplier gate, UrlBuilder urlBuilder) { }
 }
